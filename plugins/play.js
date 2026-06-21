@@ -7,11 +7,16 @@ const path = require('path');
 
 // ⏱️ SISTEMA DE COOLDOWN POR USUARIO
 const cooldowns = new Map();
-const COOLDOWN_TIME = 60000; // 60 segundos (1 minuto exacto)
+const COOLDOWN_TIME = 60000; // 60 segundos (1 minuto)
 
-// Asegurarnos de que exista la carpeta temporal para guardar los audios antes de enviarlos
 const TEMP_DIR = path.join(process.cwd(), 'temp');
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
+
+// 🛡️ Creador automático de carpeta
+function ensureTemp() {
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+}
 
 module.exports = {
   commands: ['play', 'p', 'audio', 'musica'],
@@ -20,7 +25,7 @@ module.exports = {
   async execute(ctx) {
     const { sock, remoteJid, sender, msg, args, reply } = ctx;
 
-    // 1. 🛡️ VERIFICAR COOLDOWN INDIVIDUAL
+    // 1. VERIFICAR COOLDOWN INDIVIDUAL
     const now = Date.now();
     const lastUsed = cooldowns.get(sender) || 0;
     
@@ -35,10 +40,9 @@ module.exports = {
     }
 
     try {
-      // Reacción de "cargando"
       await sock.sendMessage(remoteJid, { react: { text: '⏳', key: msg.key } });
 
-      // 2. 🔍 BÚSQUEDA DEL VIDEO (Por nombre o enlace)
+      // 2. BÚSQUEDA DEL VIDEO
       let videoInfo;
       if (query.includes('youtube.com') || query.includes('youtu.be')) {
         const videoId = ytdl.getVideoID(query);
@@ -52,7 +56,7 @@ module.exports = {
 
       if (!videoInfo) return reply('❌ Error al obtener la información de la canción.');
 
-      // 3. 🖼️ TARJETA VISUAL DE CONFIRMACIÓN
+      // 3. TARJETA VISUAL DE CONFIRMACIÓN
       const infoTxt = `🎧 *DESCARGANDO MÚSICA* 🎧\n\n📌 *Título:* ${videoInfo.title}\n👤 *Canal:* ${videoInfo.author.name}\n⏱️ *Duración:* ${videoInfo.timestamp}\n\n_Tu canción se enviará en un momento..._`;
       
       await sock.sendMessage(remoteJid, {
@@ -60,7 +64,7 @@ module.exports = {
         contextInfo: {
           externalAdReply: {
             title: videoInfo.title,
-            body: 'SiriusBot Play',
+            body: 'SiriusBot Music',
             thumbnailUrl: videoInfo.thumbnail,
             mediaType: 1,
             renderLargerThumbnail: true
@@ -68,7 +72,9 @@ module.exports = {
         }
       }, { quoted: msg });
 
-      // 4. ⬇️ DESCARGA DEL AUDIO
+      // 4. PREPARAR CARPETA Y DESCARGA
+      ensureTemp(); // <--- Aquí nos aseguramos de que la carpeta exista sí o sí
+      
       const id = Date.now();
       const filePath = path.join(TEMP_DIR, `play_${id}.mp3`);
       
@@ -77,21 +83,20 @@ module.exports = {
       
       stream.pipe(file);
 
-      // 5. 📤 ENVÍO DEL ARCHIVO
+      // 5. ENVÍO DEL ARCHIVO
       file.on('finish', async () => {
         await sock.sendMessage(remoteJid, {
           audio: { url: filePath },
           mimetype: 'audio/mpeg',
-          ptt: false // false = Documento de audio normal. Si quieres que sea Nota de Voz, ponlo en true.
+          ptt: false 
         }, { quoted: msg });
 
-        // 🔥 REGISTRAMOS EL COOLDOWN JUSTO DESPUÉS DE ENVIAR LA CANCIÓN
+        // 🔥 REGISTRAMOS EL COOLDOWN
         cooldowns.set(sender, Date.now());
         
-        // Reacción de "listo"
         await sock.sendMessage(remoteJid, { react: { text: '✅', key: msg.key } });
         
-        // Borramos el archivo pesado del servidor para no saturar la memoria
+        // Borramos el archivo temporal
         try { fs.unlinkSync(filePath); } catch (e) {}
       });
 
@@ -103,7 +108,7 @@ module.exports = {
 
     } catch (e) {
       console.error('Error en play.js:', e);
-      reply('❌ Hubo un fallo general al intentar descargar la canción. Puede que el enlace esté roto o bloqueado.');
+      reply('❌ Hubo un fallo general al intentar descargar la canción. Puede que el video tenga restricción de edad o el enlace esté roto.');
     }
   }
 };
