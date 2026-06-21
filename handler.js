@@ -92,10 +92,10 @@ async function messageHandler(sock, msg, store = {}) {
     const command = parsed ? parsed.body.trim().split(/\s+/)[0].toLowerCase() : null;
     const isCommand = !!plugins.get(command);
 
-    // 🔥 LOG DE RECEPCIÓN (Detecta todo, hasta fotos sin texto)
+    // 🔥 LOG DE RECEPCIÓN
     if (config.debug) {
-      const msgDisplay = body || getMsgIcon(msg); // Si no hay cuerpo, muestra el tipo de archivo
-      const colorMsg = isCommand ? chalk.yellowBright : chalk.white; // Color diferente si es comando
+      const msgDisplay = body || getMsgIcon(msg);
+      const colorMsg = isCommand ? chalk.yellowBright : chalk.white;
       
       logBox('MENSAJE RECIBIDO', [
         `${chalk.blue('👥')} Chat: ${chalk.white(fromGroup ? 'Grupo' : 'Privado')}`,
@@ -109,9 +109,9 @@ async function messageHandler(sock, msg, store = {}) {
     const plugin = plugins.get(command);
     if (!plugin) return;
 
-    // Ejecución
+    // Ejecución con fromGroup enviado correctamente
     await plugin.execute({
-      sock, msg, remoteJid, sender, body, args: parsed.body.trim().split(/\s+/).slice(1), command, db, isOwner,
+      sock, msg, remoteJid, sender, pushName, body, args: parsed.body.trim().split(/\s+/).slice(1), command, db, isOwner, fromGroup,
       reply: text => sock.sendMessage(remoteJid, { text: String(text) }, { quoted: msg })
     });
 
