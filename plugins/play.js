@@ -1,22 +1,10 @@
 'use strict';
 
-const ytdl = require('@distube/ytdl-core');
 const yts = require('yt-search');
-const fs = require('fs');
-const path = require('path');
 
 // ⏱️ SISTEMA DE COOLDOWN POR USUARIO
 const cooldowns = new Map();
 const COOLDOWN_TIME = 60000; // 60 segundos (1 minuto)
-
-const TEMP_DIR = path.join(process.cwd(), 'temp');
-
-// 🛡️ Creador automático de carpeta
-function ensureTemp() {
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
-  }
-}
 
 module.exports = {
   commands: ['play', 'p', 'audio', 'musica'],
@@ -25,7 +13,7 @@ module.exports = {
   async execute(ctx) {
     const { sock, remoteJid, sender, msg, args, reply } = ctx;
 
-    // 1. VERIFICAR COOLDOWN INDIVIDUAL
+    // 1. 🛡️ VERIFICAR COOLDOWN INDIVIDUAL
     const now = Date.now();
     const lastUsed = cooldowns.get(sender) || 0;
     
@@ -42,21 +30,16 @@ module.exports = {
     try {
       await sock.sendMessage(remoteJid, { react: { text: '⏳', key: msg.key } });
 
-      // 2. BÚSQUEDA DEL VIDEO
-      let videoInfo;
-      if (query.includes('youtube.com') || query.includes('youtu.be')) {
-        const videoId = ytdl.getVideoID(query);
-        const searchRes = await yts({ videoId });
-        videoInfo = searchRes;
-      } else {
-        const search = await yts(query);
-        if (!search.videos.length) return reply('❌ No encontré ningún resultado para esa búsqueda.');
-        videoInfo = search.videos[0];
+      // 2. 🔍 BÚSQUEDA DEL VIDEO
+      const search = await yts(query);
+      const videoInfo = search.videos.length ? search.videos[0] : null;
+
+      if (!videoInfo) {
+          await sock.sendMessage(remoteJid, { react: { text: '❌', key: msg.key } });
+          return reply('❌ No encontré ningún resultado para esa búsqueda.');
       }
 
-      if (!videoInfo) return reply('❌ Error al obtener la información de la canción.');
-
-      // 3. TARJETA VISUAL DE CONFIRMACIÓN
+      // 3. 🖼️ TARJETA VISUAL DE CONFIRMACIÓN
       const infoTxt = `🎧 *DESCARGANDO MÚSICA* 🎧\n\n📌 *Título:* ${videoInfo.title}\n👤 *Canal:* ${videoInfo.author.name}\n⏱️ *Duración:* ${videoInfo.timestamp}\n\n_Tu canción se enviará en un momento..._`;
       
       await sock.sendMessage(remoteJid, {
@@ -64,7 +47,7 @@ module.exports = {
         contextInfo: {
           externalAdReply: {
             title: videoInfo.title,
-            body: 'SiriusBot Music',
+            body: 'SiriusBot Play',
             thumbnailUrl: videoInfo.thumbnail,
             mediaType: 1,
             renderLargerThumbnail: true
@@ -72,43 +55,47 @@ module.exports = {
         }
       }, { quoted: msg });
 
-      // 4. PREPARAR CARPETA Y DESCARGA
-      ensureTemp(); // <--- Aquí nos aseguramos de que la carpeta exista sí o sí
+      // 4. 🌐 DESCARGA MEDIANTE API EXTERNA (Anti-Bloqueos de YouTube)
+      let audioUrl = null;
       
-      const id = Date.now();
-      const filePath = path.join(TEMP_DIR, `play_${id}.mp3`);
+      // Intento 1: API Principal
+      try {
+        const res1 = await fetch(`https://api.siputzx.my.id/api/d/ytmp3?url=${videoInfo.url}`);
+        const data1 = await res1.json();
+        if (data1?.data?.dl) audioUrl = data1.data.dl;
+      } catch (e) {}
+
+      // Intento 2: API Secundaria de Respaldo (Por si la primera falla)
+      if (!audioUrl) {
+        try {
+          const res2 = await fetch(`https://api.ryzendesu.vip/api/downloader/ytmp3?url=${videoInfo.url}`);
+          const data2 = await res2.json();
+          if (data2?.url) audioUrl = data2.url;
+        } catch (e) {}
+      }
+
+      if (!audioUrl) {
+         await sock.sendMessage(remoteJid, { react: { text: '❌', key: msg.key } });
+         return reply('❌ Los servidores de descarga están saturados. Intenta de nuevo en unos minutos.');
+      }
+
+      // 5. 📤 ENVÍO DIRECTO A WHATSAPP
+      await sock.sendMessage(remoteJid, {
+        audio: { url: audioUrl },
+        mimetype: 'audio/mpeg',
+        ptt: false 
+      }, { quoted: msg });
+
+      // 🔥 REGISTRAMOS EL COOLDOWN
+      cooldowns.set(sender, Date.now());
       
-      const stream = ytdl(videoInfo.url, { filter: 'audioonly', quality: 'highestaudio' });
-      const file = fs.createWriteStream(filePath);
-      
-      stream.pipe(file);
-
-      // 5. ENVÍO DEL ARCHIVO
-      file.on('finish', async () => {
-        await sock.sendMessage(remoteJid, {
-          audio: { url: filePath },
-          mimetype: 'audio/mpeg',
-          ptt: false 
-        }, { quoted: msg });
-
-        // 🔥 REGISTRAMOS EL COOLDOWN
-        cooldowns.set(sender, Date.now());
-        
-        await sock.sendMessage(remoteJid, { react: { text: '✅', key: msg.key } });
-        
-        // Borramos el archivo temporal
-        try { fs.unlinkSync(filePath); } catch (e) {}
-      });
-
-      file.on('error', (err) => {
-        console.error('Error al guardar el audio:', err);
-        reply('❌ Hubo un error al procesar el archivo. Intenta de nuevo.');
-        try { fs.unlinkSync(filePath); } catch (e) {}
-      });
+      // Reacción de éxito
+      await sock.sendMessage(remoteJid, { react: { text: '✅', key: msg.key } });
 
     } catch (e) {
       console.error('Error en play.js:', e);
-      reply('❌ Hubo un fallo general al intentar descargar la canción. Puede que el video tenga restricción de edad o el enlace esté roto.');
+      await sock.sendMessage(remoteJid, { react: { text: '❌', key: msg.key } });
+      reply('❌ Hubo un fallo general al intentar descargar la canción.');
     }
   }
 };
