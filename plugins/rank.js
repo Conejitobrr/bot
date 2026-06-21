@@ -34,8 +34,7 @@ module.exports = {
     const { sock, remoteJid, sender, pushName, msg } = ctx;
 
     let target = sender;
-
-    // Detectar si mencionaron o respondieron a alguien
+    // Detectar si respondieron o mencionaron a alguien
     if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
       target = msg.message.extendedTextMessage.contextInfo.participant;
     } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
@@ -44,17 +43,20 @@ module.exports = {
 
     const user = await db.getUser(target);
     const xp = user.xp || 0;
-    const level = user.level || 0;
-
-    const currentBase = level * 10000;
-    const progress = xp - currentBase;
+    
+    // 🔥 CÁLCULO MATEMÁTICO CORREGIDO:
+    // Nivel basado en bloques de 10,000
+    const level = Math.floor(xp / 10000);
+    // Progreso: el resto de la división (XP dentro del nivel actual)
+    const progress = xp % 10000;
+    // Lo que falta para el siguiente bloque de 10,000
     const needed = 10000 - progress;
 
     const role = getRole(level);
     const bar = makeBar(progress, 10000);
-    const number = target.split('@')[0];
     
-    // 🔥 CAMBIO: Forzamos el formato @ para que WhatsApp lo detecte como mención
+    // Para que WhatsApp lo reconozca como mención, el formato es @numero
+    const number = target.split('@')[0];
     const displayUser = `👤 @${number}`;
 
     await sock.sendMessage(remoteJid, {
@@ -73,7 +75,7 @@ module.exports = {
 ║
 ║ ⏳ Faltan: ${needed.toLocaleString()} XP
 ╚════════════════════╝`,
-      mentions: [target] // Esto asegura que la persona sea etiquetada
+      mentions: [target] // Esto hace que el @numero sea clickeable
     }, { quoted: msg });
   }
 };
