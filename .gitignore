@@ -1,0 +1,19 @@
+# Dependencias
+node_modules/
+
+# Sesiones de WhatsApp (¡Súper importante para evitar hackeos!)
+session/
+session/*
+
+# Variables de entorno
+.env
+
+# Base de datos local (evita sobreescribir datos al hacer git pull)
+lib/database.json
+lib/database.json.tmp
+lib/jail.json
+lib/warnings.json
+
+# Archivos de error de npm
+npm-debug.log*
+yarn-error.log*
