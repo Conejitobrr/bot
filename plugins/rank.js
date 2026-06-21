@@ -3,6 +3,7 @@
 const db = require('../lib/database');
 
 function getRole(level) {
+  if (level >= 150) return '👑 DIOS PRO';
   if (level >= 500) return '🐉 Trascendido';
   if (level >= 250) return '☄️ Celestial';
   if (level >= 150) return '🪐 Divino';
@@ -16,26 +17,23 @@ function getRole(level) {
   if (level >= 8) return '⚡ Aventurero';
   if (level >= 5) return '📚 Aprendiz';
   if (level >= 3) return '🌱 Principiante';
-  return '🐣 NOVATO';
+  return '🐣 Novato';
 }
 
 function makeBar(progress, total, size = 10) {
   let filled = Math.round((progress / total) * size);
   if (filled < 0) filled = 0;
   if (filled > size) filled = size;
-  const empty = size - filled;
-  return '█'.repeat(filled) + '░'.repeat(empty);
+  return '█'.repeat(filled) + '░'.repeat(size - filled);
 }
 
 module.exports = {
   commands: ['rank', 'nivel', 'xp'],
-  description: 'Muestra tu rango o el de otro usuario',
-
+  
   async execute(ctx) {
     const { sock, remoteJid, sender, pushName, msg } = ctx;
 
     let target = sender;
-    // Lógica para detectar si respondió a alguien o mencionó a alguien
     if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
       target = msg.message.extendedTextMessage.contextInfo.participant;
     } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
@@ -44,23 +42,19 @@ module.exports = {
 
     const user = await db.getUser(target);
     const xp = user.xp || 0;
-    const level = user.level || 0; // Usamos el nivel guardado
+    // Usamos la función de tu antigua base de datos para que sea consistente
+    const level = db.calculateLevel ? db.calculateLevel(xp) : Math.floor(xp / 10000); 
 
-    // 🔥 Regla: 10,000 XP por nivel
     const currentBase = level * 10000;
-    const nextBase = (level + 1) * 10000;
-
     const progress = xp - currentBase;
-    const needed = nextBase - xp;
+    const needed = 10000 - progress; // Siempre faltan 10k para el siguiente
 
     const role = getRole(level);
     const bar = makeBar(progress, 10000);
-    const number = target.split('@')[0];
-    const displayUser = target === sender ? `👤 ${pushName}` : `👤 @${number}`;
+    const displayUser = target === sender ? `👤 ${pushName || 'Usuario'}` : `👤 @${target.split('@')[0]}`;
 
     await sock.sendMessage(remoteJid, {
-      text:
-`╔════════════════════╗
+      text: `╔════════════════════╗
 ║      🎖️ PERFIL RANK
 ╠════════════════════╣
 ║ ${displayUser}
