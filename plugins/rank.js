@@ -21,61 +21,41 @@ function getRole(level) {
 
 function makeBar(progress, total, size = 10) {
   let filled = Math.round((progress / total) * size);
-  
-  // 🛡️ Filtro de seguridad para evitar números negativos o barras sobrecargadas
   if (filled < 0) filled = 0;
   if (filled > size) filled = size;
-
-  const empty = size - filled;
-  return '█'.repeat(filled) + '░'.repeat(empty);
+  return '█'.repeat(filled) + '░'.repeat(size - filled);
 }
 
 module.exports = {
-  commands: ['rank'],
+  commands: ['rank', 'nivel', 'xp'],
   description: 'Muestra tu rango o el de otro usuario',
 
   async execute(ctx) {
-    const {
-      sock,
-      remoteJid,
-      sender,
-      pushName,
-      msg
-    } = ctx;
+    const { sock, remoteJid, sender, pushName, msg } = ctx;
 
     let target = sender;
-    let targetName = pushName;
 
+    // Detectar si mencionaron o respondieron a alguien
     if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
       target = msg.message.extendedTextMessage.contextInfo.participant;
-    } else if (
-      msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length
-    ) {
+    } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
       target = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
     }
 
     const user = await db.getUser(target);
-
     const xp = user.xp || 0;
-    const level = user.level || 1;
+    const level = user.level || 0;
 
-    // 🔥 Cambiado el límite a 10,000 XP
-    const currentBase = (level - 1) * 10000;
-    const nextBase = level * 10000;
-
+    const currentBase = level * 10000;
     const progress = xp - currentBase;
-    const needed = nextBase - xp;
+    const needed = 10000 - progress;
 
     const role = getRole(level);
-    
-    // 🔥 La barra ahora se calcula sobre una meta de 10,000
     const bar = makeBar(progress, 10000);
-
     const number = target.split('@')[0];
-    const displayUser =
-      target === sender
-        ? `👤 ${pushName}`
-        : `👤 @${number}`;
+    
+    // 🔥 CAMBIO: Forzamos el formato @ para que WhatsApp lo detecte como mención
+    const displayUser = `👤 @${number}`;
 
     await sock.sendMessage(remoteJid, {
       text:
@@ -84,16 +64,16 @@ module.exports = {
 ╠════════════════════╣
 ║ ${displayUser}
 ║
-║ ⭐ XP: ${xp}
+║ ⭐ XP: ${xp.toLocaleString()}
 ║ 📈 Nivel: ${level}
 ║ 🎭 Rol: ${role}
 ║
 ║ ${bar}
-║ ${progress}/10000 XP
+║ ${progress.toLocaleString()}/10000 XP
 ║
-║ ⏳ Faltan: ${needed} XP
+║ ⏳ Faltan: ${needed.toLocaleString()} XP
 ╚════════════════════╝`,
-      mentions: [target]
+      mentions: [target] // Esto asegura que la persona sea etiquetada
     }, { quoted: msg });
   }
 };
