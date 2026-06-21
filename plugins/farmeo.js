@@ -1,30 +1,18 @@
 'use strict';
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-const shop = require('../lib/shop'); 
+// Asegúrate de que este archivo lib/shop.js exista, si no, comentaremos la parte del shop
+let shop;
+try { shop = require('../lib/shop'); } catch (e) { shop = { getInventory: () => ({}) }; }
 
-// 🔥 CANDADO ANTI-SPAM
 const enUso = new Set();
 
-function cleanJid(jid = '') {
-    return String(jid).split(':')[0];
-}
+function cleanJid(jid = '') { return String(jid).split(':')[0]; }
+function number(jid = '') { return cleanJid(jid).split('@')[0].replace(/\D/g, ''); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randXP(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
-function number(jid = '') {
-    return cleanJid(jid).split('@')[0].replace(/\D/g, '');
-}
-
-function pick(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function randXP(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-// ==========================================
-// DICCIONARIOS DE VARIEDAD (PESCA)
-// ==========================================
+// ... (Mantén aquí todos tus diccionarios: pescaLegendaria, minaLegendaria, etc., igual que los tenías) ...
 const pescaLegendaria = [
     '🦈 ¡INCREÍBLE! Pescaste un *Megalodón* y lo vendiste en el mercado negro.',
     '🏴‍☠️ ¡Pesca histórica! Enganchaste un *Cofre Pirata* lleno de joyas antiguas.',
@@ -138,80 +126,66 @@ module.exports = {
     commands: ['pescar', 'minar', 'talar'],
     
     async execute(ctx) {
-        const { sock, remoteJid, sender, command, db, reply, fromGroup } = ctx;
+        const { sock, remoteJid, sender, pushName, command, db, reply, fromGroup } = ctx;
 
-        if (!fromGroup) {
-            return reply('❌ Estos comandos son más divertidos en grupos.');
-        }
+        if (!fromGroup) return reply('❌ Estos comandos son más divertidos en grupos.');
 
         const userKey = cleanJid(sender);
         if (enUso.has(userKey)) return;
 
         const userData = await db.getUser(userKey);
-        const inv = await shop.getInventory(userKey);
+        const inv = (await shop.getInventory(userKey)) || {}; // Seguro si shop falla
         const now = Date.now();
-        const cooldown = 5 * 60 * 1000; // 5 minutos
+        const cooldown = 5 * 60 * 1000; 
 
-        // ==========================================
-        // FUNCIÓN GENERAL DE FARMEO
-        // ==========================================
         const procesarFarmeo = async (tipo, nombreComando, animacionIni, animacionFin, diccionarios, itemPro, emoji) => {
             const dbField = `last${tipo}`;
-            const remaining = cooldown - (now - (userData[dbField] || 0));
+            const lastTime = userData[dbField] || 0;
+            const remaining = cooldown - (now - lastTime);
 
             if (remaining > 0) {
                 const m = Math.floor(remaining / 60000);
                 const s = Math.floor((remaining % 60000) / 1000);
-                return reply(`⏳ Aún estás descansando de tu última jornada. Espera *${m}m ${s}s* para volver a ${nombreComando}.`);
+                return reply(`⏳ Aún estás descansando. Espera *${m}m ${s}s* para volver a ${nombreComando}.`);
             }
 
             enUso.add(userKey);
             await db.setUser(userKey, { [dbField]: now });
 
             try {
-                // BONO DE HERRAMIENTA PRO
                 let mult = (inv[itemPro] || 0) > 0 ? 1.5 : 1;
-                let aviso = mult > 1 ? `\n${emoji} *¡Tu Herramienta Profesional te dio un bono del 50%!*` : '';
+                let aviso = mult > 1 ? `\n${emoji} *¡Bono de herramienta profesional!*` : '';
 
-                // ANIMACIÓN
-                let msg = await sock.sendMessage(remoteJid, { text: animacionIni, mentions: [userKey] });
+                let msg = await sock.sendMessage(remoteJid, { text: animacionIni, mentions: [sender] });
                 await esperar(1500);
-                try { await sock.sendMessage(remoteJid, { text: animacionFin, edit: msg.key, mentions: [userKey] }); } catch (e) {}
+                try { await sock.sendMessage(remoteJid, { text: animacionFin, edit: msg.key, mentions: [sender] }); } catch (e) {}
                 await esperar(2000);
 
-                // CÁLCULO DE PROBABILIDAD Y CRÍTICO
                 let rand = Math.random() * 100;
-                let critico = Math.random() < 0.10; // 10% de probabilidad de golpe crítico (x2)
                 let premio = 0;
                 let resultadoTxt = '';
-                let textoCritico = critico ? `\n💥 *¡GOLPE CRÍTICO! Tu XP se ha duplicado.*` : '';
 
                 if (rand < 5) { 
                     premio = Math.floor(randXP(4000, 6000) * mult); 
-                    if (critico) premio *= 2;
-                    resultadoTxt = `${pick(diccionarios.legendario)}${aviso}${textoCritico}\n💰 Ganaste *${premio} XP*.`;
+                    resultadoTxt = `${pick(diccionarios.legendaria || diccionarios.legendario)}${aviso}\n💰 Ganaste *${premio} XP*.`;
                 } else if (rand < 20) { 
                     premio = Math.floor(randXP(1500, 2500) * mult); 
-                    if (critico) premio *= 2;
-                    resultadoTxt = `${pick(diccionarios.epico)}${aviso}${textoCritico}\n💰 Ganaste *${premio} XP*.`;
+                    resultadoTxt = `${pick(diccionarios.epica)}${aviso}\n💰 Ganaste *${premio} XP*.`;
                 } else if (rand < 70) { 
                     premio = Math.floor(randXP(400, 1000) * mult); 
-                    if (critico) premio *= 2;
-                    resultadoTxt = `${pick(diccionarios.normal)}${aviso}${textoCritico}\n💰 Ganaste *${premio} XP*.`;
+                    resultadoTxt = `${pick(diccionarios.normal)}${aviso}\n💰 Ganaste *${premio} XP*.`;
                 } else if (rand < 90) { 
-                    premio = 0;
                     resultadoTxt = `${pick(diccionarios.basura)}\n💸 No ganas nada de XP.`;
                 } else { 
                     let castigo = randXP(500, 1000);
-                    if ((userData.xp || 0) < castigo) castigo = userData.xp || 0; 
                     await db.removeXP(userKey, castigo);
                     resultadoTxt = `${pick(diccionarios.castigo)}\n❌ Perdiste *${castigo} XP*.`;
                 }
 
-                // 🐾 SINERGIA CON MASCOTAS
-                if (premio > 0 && userData.pet) {
-                    if (Math.random() < 0.25) { // 25% de que la mascota ayude
-                        let bonoMascota = Math.floor(premio * 0.20); // Da 20% extra
+                // 🐾 SEGURIDAD: Comprobamos si userData.pet existe ANTES de acceder
+                if (premio > 0 && userData.pet && userData.pet.name) {
+                    if (Math.random() < 0.25) {
+                        let bonoMascota = Math.floor(premio * 0.20);
                         premio += bonoMascota;
                         resultadoTxt += `\n✨ ¡Tu mascota *${userData.pet.name}* te ayudó y encontró *+${bonoMascota} XP* extra!`;
                     }
@@ -220,41 +194,15 @@ module.exports = {
                 if (premio > 0) await db.addXP(userKey, premio);
 
                 let finalMsg = `*RESULTADO DE ${nombreComando.toUpperCase()}* ${emoji}\n\n${resultadoTxt}\n👤 @${number(sender)}`;
-                try { await sock.sendMessage(remoteJid, { text: finalMsg, edit: msg.key, mentions: [userKey] }); } 
-                catch (e) { await sock.sendMessage(remoteJid, { text: finalMsg, mentions: [userKey] }); }
+                await sock.sendMessage(remoteJid, { text: finalMsg, mentions: [sender] });
             } finally {
                 enUso.delete(userKey);
             }
         };
 
-        // ==========================================
-        // RUTEO DE COMANDOS
-        // ==========================================
-        if (command === 'pescar') {
-            await procesarFarmeo('Pescar', 'pesca', 
-                `🎣 @${number(sender)} ha lanzado la caña al agua...`, 
-                `🎣 @${number(sender)} siente un fuerte tirón... *¡Algo picó!*`, 
-                { legendario: pescaLegendaria, epico: pescaEpica, normal: pescaNormal, basura: pescaBasura, castigo: pescaCastigo },
-                'cana_pro', '🎣'
-            );
-        }
-
-        if (command === 'minar') {
-            await procesarFarmeo('Minar', 'minería', 
-                `⛏️ @${number(sender)} encendió su antorcha y entró a la cueva oscura...`, 
-                `⛏️ @${number(sender)} está picando una pared de piedra...\n\n*¡Clank! ¡Clank! ¡Clank!*`, 
-                { legendario: minaLegendaria, epico: minaEpica, normal: minaNormal, basura: minaBasura, castigo: minaCastigo },
-                'pico_pro', '⛏️'
-            );
-        }
-
-        if (command === 'talar') {
-            await procesarFarmeo('Talar', 'tala', 
-                `🪓 @${number(sender)} camina hacia el espeso bosque buscando un buen árbol...`, 
-                `🪓 @${number(sender)} levanta su hacha y comienza a golpear el tronco...\n\n*¡Chop! ¡Chop! ¡Chop!*`, 
-                { legendario: talaLegendaria, epico: talaEpica, normal: talaNormal, basura: talaBasura, castigo: talaCastigo },
-                'hacha_pro', '🪓'
-            );
-        }
+        // RUTEO
+        if (command === 'pescar') await procesarFarmeo('Pescar', 'pesca', `🎣 @${number(sender)} lanza la caña...`, `🎣 @${number(sender)} siente un tirón...`, { legendaria: pescaLegendaria, epico: pescaEpica, normal: pescaNormal, basura: pescaBasura, castigo: pescaCastigo }, 'cana_pro', '🎣');
+        if (command === 'minar') await procesarFarmeo('Minar', 'minería', `⛏️ @${number(sender)} entró a la cueva...`, `⛏️ @${number(sender)} está picando...`, { legendaria: minaLegendaria, epico: minaEpica, normal: minaNormal, basura: minaBasura, castigo: minaCastigo }, 'pico_pro', '⛏️');
+        if (command === 'talar') await procesarFarmeo('Talar', 'tala', `🪓 @${number(sender)} busca un árbol...`, `🪓 @${number(sender)} comienza a golpear...`, { legendaria: talaLegendaria, epica: talaEpica, normal: talaNormal, basura: talaBasura, castigo: talaCastigo }, 'hacha_pro', '🪓');
     }
 };
