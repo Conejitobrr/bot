@@ -6,23 +6,30 @@ const chalk = require('chalk');
 
 const config = require('./config');
 const db = require('./lib/database');
-const { getBody, normalizeJid, detectPrefix, getGroupAdmins, cleanNumber } = require('./lib/utils');
+
+const {
+  getBody,
+  normalizeJid,
+  detectPrefix,
+  getGroupAdmins,
+  cleanNumber
+} = require('./lib/utils');
 
 // ⏱️ RELOJ GLOBAL
 function getTime() { return new Date().toLocaleTimeString('es-PE', { hour12: false }); }
 
 // ─────────────────────────────────────────
-// 🎨 LOGGER DE CAJA PROFESIONAL
+// 🎨 LOGGER VISTOSO (ESTILO NASA)
 // ─────────────────────────────────────────
-function logBox(title, data = []) {
+function logBox(title, lines = []) {
   if (!config.debug) return;
   const time = getTime();
   console.log(chalk.gray(`\n┌─── 🕒 [${time}] ─── ${chalk.cyan(title)} ───`));
-  data.forEach(line => console.log(chalk.gray('│ ') + line));
+  lines.forEach(line => console.log(chalk.gray('│ ') + line));
   console.log(chalk.gray('└────────────────────────────────────────────\n'));
 }
 
-function getMsgIcon(msg) {
+function getMsgType(msg) {
   const m = msg.message || {};
   if (m.imageMessage) return '📸 Imagen';
   if (m.videoMessage) return m.videoMessage.gifPlayback ? '🎞️ GIF' : '🎥 Video';
@@ -35,44 +42,76 @@ function getMsgIcon(msg) {
 }
 
 // ─────────────────────────────────────────
-// 🚀 SILENCIADOR DE ERRORES
+// 🚀 SILENCIADOR DE RUIDO (FILTROS)
 // ─────────────────────────────────────────
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
-const blocked = ['Closing session', 'SessionEntry', '_chains', 'BAD MAC', 'Failed to decrypt', 'Session error', 'verifyMAC', 'Error: Session not found', 'pendingPreKey', 'messageKeys', 'remoteIdentityKey', 'indexInfo'];
+const originalConsoleWarn = console.warn;
 
-console.log = (...args) => {
+function shouldHideConsole(args = []) {
   const text = args.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(' ');
-  if (!blocked.some(word => text.includes(word))) originalConsoleLog(...args);
-};
+  const blocked = [
+    'Closing session', 'SessionEntry', '_chains', 'BAD MAC', 'Failed to decrypt', 
+    'Session error', 'verifyMAC', 'Error: Session not found', 'pendingPreKey', 
+    'messageKeys', 'remoteIdentityKey', 'indexInfo'
+  ];
+  return blocked.some(word => text.includes(word));
+}
 
-console.error = (...args) => {
-  const text = args.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(' ');
-  if (!blocked.some(word => text.includes(word))) originalConsoleError(...args);
-};
+console.log = (...args) => { if (!shouldHideConsole(args)) originalConsoleLog(...args); };
+console.error = (...args) => { if (!shouldHideConsole(args)) originalConsoleError(...args); };
+console.warn = (...args) => { if (!shouldHideConsole(args)) originalConsoleWarn(...args); };
+
+// ─────────────────────────────────────────
+// 📤 MONITOR DE ENVÍOS
+// ─────────────────────────────────────────
+function attachSendLogger(sock) {
+  if (sock._loggerAttached) return;
+  sock._loggerAttached = true;
+  const originalSend = sock.sendMessage.bind(sock);
+  sock.sendMessage = async (jid, content = {}, options = {}) => {
+    try {
+      if (config.debug) {
+        let type = 'Texto', preview = content.text || '[Multimedia]';
+        console.log(chalk.gray(`[${getTime()}] `) + chalk.cyan('📤 [BOT RESPONDE] ') + chalk.gray(`a +${cleanNumber(jid)} `) + chalk.yellow(`[${type}] `) + chalk.white(`-> ${String(preview).slice(0, 50)}...`));
+      }
+      return await originalSend(jid, content, options);
+    } catch (err) { console.log(chalk.gray(`[${getTime()}] `) + chalk.red('❌ [ERROR DE ENVÍO]:'), err?.message || err); }
+  };
+}
 
 // ─────────────────────────────────────────
 // 📦 GESTOR DE PLUGINS
 // ─────────────────────────────────────────
-const PLUGINS_DIR = path.join(process.cwd(), 'plugins');
-if (!fs.existsSync(PLUGINS_DIR)) fs.mkdirSync(PLUGINS_DIR, { recursive: true });
+function getPluginsDir() {
+  const plugin = path.join(process.cwd(), 'plugin');
+  const plugins = path.join(process.cwd(), 'plugins');
+  if (fs.existsSync(plugin)) return plugin;
+  if (fs.existsSync(plugins)) return plugins;
+  fs.mkdirSync(plugin, { recursive: true });
+  return plugin;
+}
+
+const PLUGINS_DIR = getPluginsDir();
 const plugins = new Map();
 const messagePlugins = [];
 
 function loadPlugins() {
   plugins.clear();
   messagePlugins.length = 0;
-  fs.readdirSync(PLUGINS_DIR).filter(f => f.endsWith('.js')).forEach(file => {
+  const files = fs.readdirSync(PLUGINS_DIR).filter(file => file.endsWith('.js'));
+  for (const file of files) {
     try {
       const filepath = path.join(PLUGINS_DIR, file);
       delete require.cache[require.resolve(filepath)];
       const plugin = require(filepath);
-      if (plugin.onMessage) messagePlugins.push({ ...plugin, file });
-      if (plugin.execute) {
+      if (!plugin) continue;
+      if (typeof plugin.onMessage === 'function') messagePlugins.push({ ...plugin, file });
+      if (typeof plugin.execute === 'function') {
         (Array.isArray(plugin.commands) ? plugin.commands : []).forEach(cmd => plugins.set(String(cmd).toLowerCase(), { ...plugin, file }));
       }
-    } catch (e) { console.log(chalk.red(`❌ Error cargando ${file}:`), e.message); }
-  });
+    } catch (err) { console.log(chalk.red(`❌ [ERROR PLUGIN] ${file}:`), err?.message || err); }
+  }
 }
 global.loadPlugins = loadPlugins;
 loadPlugins();
@@ -82,31 +121,35 @@ loadPlugins();
 // ─────────────────────────────────────────
 async function messageHandler(sock, msg, store = {}) {
   try {
+    attachSendLogger(sock);
     if (!msg?.message) return;
+
     const key = msg.key || {};
     const remoteJid = key.remoteJid;
     if (!remoteJid || remoteJid === 'status@broadcast') return;
 
+    const fromMe = !!key.fromMe;
     const fromGroup = remoteJid.endsWith('@g.us');
     let sender = normalizeJid(fromGroup ? key.participant : remoteJid);
     const body = getBody(msg);
     const pushName = msg.pushName || 'Usuario';
+    const number = cleanNumber(sender);
     
-    // 🔥 CORRECCIÓN AQUÍ: Usamos cleanNumber para identificar al usuario correctamente
-    const senderNumber = cleanNumber(sender);
-    const isOwner = config.owner.includes(senderNumber);
-
-    // ⚡ LOG VISTOSO
+    // --- LÓGICA DE OWNER QUE YA FUNCIONABA ---
+    const ownerNumbers = Array.isArray(config.owner) ? config.owner.map(n => String(n).replace(/\D/g, '')) : [];
+    const isOwner = fromMe || ownerNumbers.includes(number) || ownerNumbers.includes(cleanNumber(remoteJid)) || ownerNumbers.includes(cleanNumber(msg.realNumber || ''));
+    
+    // ⚡ LOG VISTOSO EN CAJA
     if (config.debug && body) {
       logBox('MENSAJE RECIBIDO', [
         `${chalk.blue('👥')} Chat: ${chalk.white(fromGroup ? 'Grupo' : 'Privado')}`,
-        `${chalk.yellow('👤')} De: ${chalk.white(pushName)} (${chalk.gray('+' + senderNumber)})`,
-        `${chalk.magenta('🎞️')} Tipo: ${chalk.green(getMsgIcon(msg))}`,
-        `${chalk.cyan('💬')} Msg: ${chalk.white(body.slice(0, 40) || '---')}`,
-        `${chalk.red('👑')} Owner: ${isOwner ? chalk.green('SÍ') : chalk.red('NO')}`
+        `${chalk.yellow('👤')} De: ${chalk.white(pushName)} (${chalk.gray('+' + number)}) ${isOwner ? chalk.red('👑 [OWNER]') : ''}`,
+        `${chalk.magenta('🎞️')} Tipo: ${chalk.green(getMsgType(msg))}`,
+        `${chalk.cyan('💬')} Msg: ${chalk.white(body.slice(0, 40))}`
       ]);
     }
 
+    // --- LÓGICA RESTANTE ---
     const parsed = detectPrefix(body, config.prefix);
     if (!parsed) return;
 
@@ -115,22 +158,13 @@ async function messageHandler(sock, msg, store = {}) {
     const plugin = plugins.get(command);
     if (!plugin) return;
 
-    // 🟢 EJECUCIÓN CON ESTILO
-    if (config.debug) {
-      logBox('COMANDO EJECUTADO', [
-        `${chalk.magenta('⚡')} Cmd: ${chalk.cyan(config.prefix + command)}`,
-        `${chalk.yellow('👤')} User: ${chalk.white(pushName)}`,
-        `${chalk.red('👑')} Owner: ${isOwner ? chalk.green('SÍ') : chalk.red('NO')}`
-      ]);
-    }
-
     await plugin.execute({
-      sock, msg, remoteJid, sender, body, args, command, db, isOwner,
+      sock, msg, key, remoteJid, sender, pushName, body, args, command, store, config, db, isOwner,
       reply: text => sock.sendMessage(remoteJid, { text: String(text) }, { quoted: msg })
     });
 
   } catch (err) {
-    console.log(chalk.red('❌ [FATAL ERROR]:'), err.message);
+    console.log(chalk.red('❌ [FATAL ERROR]:'), err?.stack || err);
   }
 }
 
