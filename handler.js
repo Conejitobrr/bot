@@ -111,7 +111,7 @@ async function messageHandler(sock, msg, store = {}) {
 
     // Ejecución
     await plugin.execute({
-      sock, msg, remoteJid, sender, pushName, body, args, command, db, isOwner, fromGroup, // <--- AÑADE ESTO AQUÍ
+      sock, msg, remoteJid, sender, body, args: parsed.body.trim().split(/\s+/).slice(1), command, db, isOwner,
       reply: text => sock.sendMessage(remoteJid, { text: String(text) }, { quoted: msg })
     });
 
