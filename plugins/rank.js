@@ -3,7 +3,6 @@
 const db = require('../lib/database');
 
 function getRole(level) {
-  if (level >= 150) return '👑 DIOS PRO';
   if (level >= 500) return '🐉 Trascendido';
   if (level >= 250) return '☄️ Celestial';
   if (level >= 150) return '🪐 Divino';
@@ -22,51 +21,77 @@ function getRole(level) {
 
 function makeBar(progress, total, size = 10) {
   let filled = Math.round((progress / total) * size);
+  
+  // 🛡️ Filtro de seguridad para evitar números negativos o barras sobrecargadas
   if (filled < 0) filled = 0;
   if (filled > size) filled = size;
-  return '█'.repeat(filled) + '░'.repeat(size - filled);
+
+  const empty = size - filled;
+  return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
 module.exports = {
-  commands: ['rank', 'nivel', 'xp'],
-  
+  commands: ['rank'],
+  description: 'Muestra tu rango o el de otro usuario',
+
   async execute(ctx) {
-    const { sock, remoteJid, sender, pushName, msg } = ctx;
+    const {
+      sock,
+      remoteJid,
+      sender,
+      pushName,
+      msg
+    } = ctx;
 
     let target = sender;
+    let targetName = pushName;
+
     if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
       target = msg.message.extendedTextMessage.contextInfo.participant;
-    } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
+    } else if (
+      msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length
+    ) {
       target = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
     }
 
     const user = await db.getUser(target);
-    const xp = user.xp || 0;
-    // Usamos la función de tu antigua base de datos para que sea consistente
-    const level = db.calculateLevel ? db.calculateLevel(xp) : Math.floor(xp / 10000); 
 
-    const currentBase = level * 10000;
+    const xp = user.xp || 0;
+    const level = user.level || 1;
+
+    // 🔥 Cambiado el límite a 10,000 XP
+    const currentBase = (level - 1) * 10000;
+    const nextBase = level * 10000;
+
     const progress = xp - currentBase;
-    const needed = 10000 - progress; // Siempre faltan 10k para el siguiente
+    const needed = nextBase - xp;
 
     const role = getRole(level);
+    
+    // 🔥 La barra ahora se calcula sobre una meta de 10,000
     const bar = makeBar(progress, 10000);
-    const displayUser = target === sender ? `👤 ${pushName || 'Usuario'}` : `👤 @${target.split('@')[0]}`;
+
+    const number = target.split('@')[0];
+    const displayUser =
+      target === sender
+        ? `👤 ${pushName}`
+        : `👤 @${number}`;
 
     await sock.sendMessage(remoteJid, {
-      text: `╔════════════════════╗
+      text:
+`╔════════════════════╗
 ║      🎖️ PERFIL RANK
 ╠════════════════════╣
 ║ ${displayUser}
 ║
-║ ⭐ XP: ${xp.toLocaleString()}
+║ ⭐ XP: ${xp}
 ║ 📈 Nivel: ${level}
 ║ 🎭 Rol: ${role}
 ║
 ║ ${bar}
-║ ${progress.toLocaleString()}/10000 XP
+║ ${progress}/10000 XP
 ║
-║ ⏳ Faltan: ${needed.toLocaleString()} XP
+║ ⏳ Faltan: ${needed} XP
 ╚════════════════════╝`,
       mentions: [target]
     }, { quoted: msg });
