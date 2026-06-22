@@ -29,7 +29,7 @@ function sanitizeFileName(name = 'audio') {
 }
 
 // ==========================================
-// MOTOR DE COLA (Procesa 1 por 1 cada minuto)
+// MOTOR DE COLA
 // ==========================================
 async function processQueue(chatId) {
   if (processingChats.has(chatId)) return;
@@ -44,10 +44,9 @@ async function processQueue(chatId) {
       await handleDownload(job);
     } catch (err) {
       console.log('❌ Error en cola youtube/play:', err?.message || err);
-      await job.sock.sendMessage(job.remoteJid, { text: '❌ Error al procesar esta canción.' }, { quoted: job.msg });
+      try { await job.sock.sendMessage(job.remoteJid, { text: '❌ Error al procesar esta canción.' }, { quoted: job.msg }); } catch {}
     }
 
-    // Si aún hay canciones en la cola de este grupo, espera 1 minuto
     if (queue.length > 0) {
       await sleep(QUEUE_DELAY);
     }
@@ -67,10 +66,8 @@ async function handleDownload(job) {
   try {
     ensureTemp();
     
-    // Ruta temporal con el ID único
     const fileBase = path.join(TEMP_DIR, `yt_audio_${id}.%(ext)s`);
 
-    // Ejecutamos YT-DLP (La bestia anti-bloqueos)
     await execFileAsync('yt-dlp', [
       '--extractor-args', 'youtube:player_client=android',
       '--geo-bypass',
@@ -86,7 +83,6 @@ async function handleDownload(job) {
       url
     ]);
 
-    // Buscamos el archivo descargado
     const files = fs.readdirSync(TEMP_DIR);
     const downloaded = files.find(f => f.startsWith(`yt_audio_${id}`) && f.endsWith('.mp3'));
 
@@ -99,7 +95,6 @@ async function handleDownload(job) {
       return sock.sendMessage(remoteJid, { text: '❌ El audio pesa demasiado para enviarlo por WhatsApp.' }, { quoted: msg });
     }
 
-    // Enviamos el audio respondiendo al mensaje original
     await sock.sendMessage(remoteJid, {
       audio: fs.readFileSync(finalPath),
       mimetype: 'audio/mpeg',
@@ -107,7 +102,6 @@ async function handleDownload(job) {
     }, { quoted: msg });
 
   } finally {
-    // 🧹 Limpieza: borramos el archivo pesando de la memoria
     try { if (finalPath && fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch {}
   }
 }
@@ -119,7 +113,7 @@ module.exports = {
   commands: ['yt', 'play', 'youtube', 'p'],
 
   async execute(ctx) {
-    const { sock, remoteJid, args, msg, sender, pushName, reply } = ctx;
+    const { sock, remoteJid, args, msg, sender, reply } = ctx;
 
     try {
       if (!args.length) return reply('❌ Envía un link o nombre de canción.\n\nEjemplo:\n.play bad bunny');
@@ -127,10 +121,9 @@ module.exports = {
       const query = args.join(' ').trim();
       await sock.sendMessage(remoteJid, { react: { text: '🔍', key: msg.key } });
 
-      // 1. Buscamos la info ANTES de poner en cola para mostrar la tarjeta bonita
       let url = query;
       let title = 'Audio de YouTube';
-      let thumb = 'https://files.catbox.moe/k3y7a5.jpg'; // Imagen por defecto
+      let thumb = 'https://files.catbox.moe/k3y7a5.jpg'; 
       let author = 'YouTube';
 
       if (!isYouTubeUrl(query)) {
@@ -145,21 +138,29 @@ module.exports = {
         author = video.author?.name || 'Desconocido';
       }
 
-      // 2. Gestionamos la cola INDEPENDIENTE POR GRUPO
+      // 🔥 CORRECCIÓN DEL CUADRO NEGRO: Convertimos la imagen a Buffer (Memoria física)
+      let thumbBuffer;
+      try {
+        const response = await fetch(thumb);
+        const arrayBuffer = await response.arrayBuffer();
+        thumbBuffer = Buffer.from(arrayBuffer);
+      } catch (err) {
+        console.error('No se pudo cargar la imagen miniatura:', err);
+        thumbBuffer = undefined; // Si falla, al menos no crashea
+      }
+
       if (!queues.has(remoteJid)) queues.set(remoteJid, []);
       const queue = queues.get(remoteJid);
       
       const position = queue.length + (processingChats.has(remoteJid) ? 1 : 0);
-      const waitMin = position === 0 ? 0 : position * 1; // 1 minuto por cada canción en cola
+      const waitMin = position === 0 ? 0 : position * 1; 
 
       const id = `${Date.now()}_${Math.floor(Math.random() * 9999)}`;
 
-      // 3. Añadimos a la lista de tareas
       queue.push({
         sock, remoteJid, msg, sender, url, title, id
       });
 
-      // 4. Tarjeta visual premium de aviso
       const textAviso = position === 0
         ? `📥 *CANCION EN PROCESO*\n\n👤 *Pedido por:* @${sender.split('@')[0]}\n🎶 *Descargando:* ${title}\n\n⏳ _Procesando audio de alta calidad..._`
         : `📥 *AÑADIDA A LA COLA*\n\n👤 *Pedido por:* @${sender.split('@')[0]}\n🎶 *Canción:* ${title}\n📌 *Posición:* #${position + 1}\n\n⏳ _Tu pedido se enviará automáticamente en *${waitMin} minuto(s)* para evitar el spam._`;
@@ -171,14 +172,14 @@ module.exports = {
           externalAdReply: {
             title: title,
             body: `Canal: ${author}`,
-            thumbnailUrl: thumb,
+            thumbnail: thumbBuffer, // ✅ Pasamos la imagen física en lugar del Link
+            sourceUrl: url, // ✅ Hace que el cuadro sea clicable y te lleve a YouTube
             mediaType: 1,
             renderLargerThumbnail: true
           }
         }
       }, { quoted: msg });
 
-      // 5. Iniciar la procesadora si estaba dormida
       processQueue(remoteJid);
 
     } catch (err) {
