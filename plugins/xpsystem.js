@@ -21,11 +21,8 @@ module.exports = {
         if (cooldown.has(k) && (now - cooldown.get(k) < 8000)) return;
         cooldown.set(k, now);
 
-        // 🔥 IMPORTANTE: Guardamos el pushName en la DB al ganar XP 
-        // para que luego podamos mostrarlo en los TOPs
         const xp = Math.floor(Math.random() * 11) + 5;
         await db.addXP(sender, xp);
-        await db.setUser(sender, { name: pushName || 'Usuario' }); 
     },
 
     commands: ['topxp', 'topglobal'],
@@ -37,10 +34,9 @@ module.exports = {
         const allData = await db.getAll();
         const users = allData.users || {};
 
-        // Recalcular lista global
+        // Recalcular lista
         const list = Object.entries(users).map(([id, u]) => ({
             id: cleanJid(id),
-            name: u.name || 'Usuario', // Recuperamos el nombre guardado
             xp: Number(u.xp || 0),
             level: db.calculateLevel(u.xp || 0)
         }));
@@ -66,8 +62,9 @@ module.exports = {
                 mentions.push(`${u.id}@s.whatsapp.net`);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
                 
-                // 🔥 AQUÍ ESTÁ EL CAMBIO: Mostramos Nombre + Mención
-                text += `${medal} *${u.name}* (@${u.id.split('@')[0]})\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
+                // 🔥 ESTA ES LA CLAVE: Usar @número sin paréntesis. 
+                // WhatsApp reemplazará @número por el nombre real de la persona.
+                text += `${medal} @${u.id}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
             return sock.sendMessage(remoteJid, { text, mentions }, { quoted: msg });
@@ -85,8 +82,8 @@ module.exports = {
                 mentions.push(`${u.id}@s.whatsapp.net`);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
                 
-                // 🔥 AQUÍ ESTÁ EL CAMBIO: Mostramos Nombre + Mención
-                text += `${medal} *${u.name}* (@${u.id.split('@')[0]})\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
+                // 🔥 ESTA ES LA CLAVE: Usar @número sin paréntesis.
+                text += `${medal} @${u.id}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
             return sock.sendMessage(remoteJid, { text, mentions }, { quoted: msg });
