@@ -9,17 +9,13 @@ const yts = require('yt-search');
 const execFileAsync = promisify(execFile);
 const TEMP_DIR = path.join(process.cwd(), 'temp');
 
-// ⏳ COLA POR CHAT: 1 minuto y medio para videos (pesan más)
+// ⏳ COLA POR CHAT: 1 minuto y medio
 const QUEUE_DELAY = 90 * 1000;
 const queues = new Map();
 const processingChats = new Set();
 
 function ensureTemp() {
   if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
-}
-
-function isYouTubeUrl(text = '') {
-  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(text);
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -57,7 +53,7 @@ async function processQueue(chatId) {
 }
 
 // ==========================================
-// DESCARGA Y ENVÍO DEL VIDEO (HASTA 1080P)
+// DESCARGA Y ENVÍO (HASTA 1080P)
 // ==========================================
 async function handleDownload(job) {
   const { sock, remoteJid, msg, url, title, id } = job;
@@ -68,8 +64,6 @@ async function handleDownload(job) {
     
     const fileBase = path.join(TEMP_DIR, `yt_video_${id}.%(ext)s`);
 
-    // El parámetro mágico para 1080p:
-    // bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]
     await execFileAsync('yt-dlp', [
       '--extractor-args', 'youtube:player_client=android',
       '--geo-bypass',
@@ -91,12 +85,10 @@ async function handleDownload(job) {
     finalPath = path.join(TEMP_DIR, downloaded);
     const sizeMB = fs.statSync(finalPath).size / 1024 / 1024;
 
-    // WhatsApp permite hasta 100MB aprox en bots, cortamos en 95MB por seguridad
     if (sizeMB > 95) {
       return sock.sendMessage(remoteJid, { text: `❌ El video pesa demasiado (*${sizeMB.toFixed(1)} MB*). WhatsApp solo permite hasta 95 MB.` }, { quoted: msg });
     }
 
-    // Enviamos el video directamente para que se reproduzca en el chat
     await sock.sendMessage(remoteJid, {
       video: fs.readFileSync(finalPath),
       caption: `🎬 *${title}*`,
@@ -105,7 +97,6 @@ async function handleDownload(job) {
     }, { quoted: msg });
 
   } finally {
-    // Limpieza obligatoria del disco duro
     try { if (finalPath && fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch {}
   }
 }
@@ -131,7 +122,21 @@ module.exports = {
       let thumb = 'https://files.catbox.moe/k3y7a5.jpg'; 
       let author = 'YouTube';
 
-      if (!isYouTubeUrl(query)) {
+      // 🔥 LÓGICA CORREGIDA: Detectar URLs y obtener información real siempre
+      const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+      const match = query.match(ytRegex);
+
+      if (match && match[1]) {
+        // ES UN ENLACE: Extraemos el ID y buscamos su información exacta
+        const video = await yts({ videoId: match[1] });
+        if (!video) return reply('❌ No se pudo obtener la información de ese enlace.');
+        
+        url = video.url;
+        title = video.title;
+        thumb = video.thumbnail;
+        author = video.author?.name || 'Desconocido';
+      } else {
+        // ES UN TEXTO: Buscamos por nombre
         const res = await yts(query);
         const video = res.videos?.find(v => v.url && !v.title?.toLowerCase().includes('mix') && !v.title?.toLowerCase().includes('playlist')) || res.videos?.[0];
         
@@ -143,7 +148,7 @@ module.exports = {
         author = video.author?.name || 'Desconocido';
       }
 
-      // Descarga de miniatura en memoria RAM (Solución al cuadro negro)
+      // Descarga de miniatura en memoria RAM (Evita el cuadro negro)
       let thumbBuffer;
       try {
         const response = await fetch(thumb);
@@ -158,7 +163,7 @@ module.exports = {
       const queue = queues.get(remoteJid);
       
       const position = queue.length + (processingChats.has(remoteJid) ? 1 : 0);
-      const waitMin = position === 0 ? 0 : position * 1.5; // 1.5 min por ser video
+      const waitMin = position === 0 ? 0 : position * 1.5;
 
       const id = `${Date.now()}_${Math.floor(Math.random() * 9999)}`;
 
