@@ -1,8 +1,8 @@
 'use strict';
 
-// Función para limpiar números
+// 🔥 CORRECCIÓN: Ahora el ID coincide exactamente con el de farmeo.js
 function cleanJid(jid = '') {
-    return String(jid).split('@')[0].split(':')[0].replace(/\D/g, '');
+    return String(jid).split(':')[0];
 }
 
 // 🎭 Sistema de Roles
@@ -39,7 +39,7 @@ module.exports = {
     async execute(ctx) {
         const { sock, remoteJid, sender, pushName, msg, db } = ctx;
 
-        // 1. IDENTIFICAR EL OBJETIVO (A quién estamos mirando)
+        // 1. IDENTIFICAR EL OBJETIVO
         let target = sender;
         if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
             target = msg.message.extendedTextMessage.contextInfo.participant;
@@ -53,32 +53,33 @@ module.exports = {
         // 2. OBTENER DATOS DEL USUARIO
         const user = await db.getUser(cleanTarget);
         const xp = Number(user.xp || 0);
-        const level = Number(user.level || 0);
+        const level = Number(user.level || 1); // Nivel 1 por defecto
 
-        // 3. CÁLCULO PERFECTO DE BARRAS (Base 10,000)
-        // Nivel 0: 0-9,999 | Nivel 1: 10,000-19,999
-        const currentBase = level * 10000; 
-        const nextBase = (level + 1) * 10000;
+        // 3. CÁLCULO PERFECTO DE BARRAS (Base 10,000 por nivel)
+        // 🔥 CORRECCIÓN MATEMÁTICA: Si eres Lvl 1, la base es 0.
+        const currentBase = (level - 1) * 10000; 
+        const nextBase = level * 10000;
         
-        const progressXP = xp - currentBase;
-        const neededXP = nextBase - xp;
+        let progressXP = xp - currentBase;
+        let neededXP = nextBase - xp;
         
+        // Seguro anti-glitches
+        if (progressXP < 0) progressXP = 0;
+        if (neededXP < 0) neededXP = 10000;
+
         const porcentaje = Math.floor((progressXP / 10000) * 100);
         const bar = makeBar(progressXP, 10000, 10);
         const role = getRole(level);
 
-        // 4. 🏆 CÁLCULO DEL TOP GLOBAL (Magia en memoria RAM)
+        // 4. 🏆 CÁLCULO DEL TOP GLOBAL
         const allData = await db.getAll();
         const allUsers = allData.users || {};
         
-        // Ordenamos a todos los usuarios de mayor a menor XP
         const sortedUsers = Object.entries(allUsers).sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0));
         
-        // Buscamos en qué posición está la persona
         const rankPosition = sortedUsers.findIndex(u => u[0] === cleanTarget) + 1;
         const totalUsers = sortedUsers.length;
 
-        // Diseñamos el trofeo según la posición
         let trofeo = '';
         if (rankPosition === 1) trofeo = '🏆 *[TOP #1 GLOBAL]*';
         else if (rankPosition === 2) trofeo = '🥈 *[TOP #2 GLOBAL]*';
@@ -89,7 +90,7 @@ module.exports = {
 
         // 5. DISEÑO DE LA INTERFAZ
         const isMe = cleanTarget === cleanSender;
-        const displayName = isMe ? pushName : `@${cleanTarget}`;
+        const displayName = isMe ? pushName : `@${cleanTarget.split('@')[0]}`;
 
         const rankMsg = 
 `╭━━━〔 *PERFIL DE USUARIO* 〕━━━
@@ -108,7 +109,7 @@ module.exports = {
         // 6. ENVIAR RESULTADO
         await sock.sendMessage(remoteJid, {
             text: rankMsg,
-            mentions: isMe ? [] : [target] // Solo menciona si miraste a otro
+            mentions: isMe ? [] : [target]
         }, { quoted: msg });
     }
 };
