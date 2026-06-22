@@ -2,20 +2,18 @@
 
 const cooldown = new Map();
 
+// Helper para limpiar el JID y dejar solo el número puro
 function cleanJid(jid = '') {
-    return String(jid).split(':')[0];
-}
-
-function key(g, u) {
-    return `${g}:${u}`;
+    return String(jid).split('@')[0].split(':')[0];
 }
 
 module.exports = {
+    // 🔥 EVENTO DE GANANCIA DE XP
     onMessage: async (ctx) => {
-        const { sender, remoteJid, fromGroup, db, pushName } = ctx;
+        const { sender, remoteJid, fromGroup, db } = ctx;
         if (!fromGroup) return;
 
-        const k = key(remoteJid, sender);
+        const k = `${remoteJid}:${sender}`;
         const now = Date.now();
 
         if (cooldown.has(k) && (now - cooldown.get(k) < 8000)) return;
@@ -34,7 +32,7 @@ module.exports = {
         const allData = await db.getAll();
         const users = allData.users || {};
 
-        // Recalcular lista
+        // Recalcular lista global
         const list = Object.entries(users).map(([id, u]) => ({
             id: cleanJid(id),
             xp: Number(u.xp || 0),
@@ -47,6 +45,7 @@ module.exports = {
             try { metadata = await sock.groupMetadata(remoteJid); } 
             catch { return reply('❌ Este comando solo funciona en grupos.'); }
 
+            // Filtramos solo los participantes actuales del grupo
             const participants = metadata.participants.map(p => cleanJid(p.id));
             const groupUsers = list.filter(u => participants.includes(u.id));
 
@@ -62,8 +61,7 @@ module.exports = {
                 mentions.push(`${u.id}@s.whatsapp.net`);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
                 
-                // 🔥 ESTA ES LA CLAVE: Usar @número sin paréntesis. 
-                // WhatsApp reemplazará @número por el nombre real de la persona.
+                // 🔥 AQUÍ ESTÁ LA MENCION NATIVA: Al poner @id, WhatsApp lo convierte en enlace
                 text += `${medal} @${u.id}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
@@ -82,7 +80,6 @@ module.exports = {
                 mentions.push(`${u.id}@s.whatsapp.net`);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
                 
-                // 🔥 ESTA ES LA CLAVE: Usar @número sin paréntesis.
                 text += `${medal} @${u.id}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
