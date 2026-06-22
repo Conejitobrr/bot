@@ -57,7 +57,7 @@ function shouldHideConsole(args = []) {
     'SessionEntry', '_chains', 'Removing old closed session', 'chainKey', 
     'ephemeralKeyPair', 'rootKey', 'indexInfo', 'registrationId', 
     'currentRatchet', 'pendingPreKey', 'messageKeys', 'remoteIdentityKey',
-    'BAD MAC', 'Failed to decrypt', 'Session error', 'verifyMAC'
+    'BAD MAC', 'Failed to decrypt', 'Session error', 'verifyMAC', 'rate-overlimit'
   ];
   return blocked.some(word => text.includes(word));
 }
@@ -67,31 +67,67 @@ console.error = (...args) => { if (!shouldHideConsole(args)) originalConsoleErro
 console.warn = (...args) => { if (!shouldHideConsole(args)) originalConsoleWarn(...args); };
 
 // ─────────────────────────────────────────
-// 📤 MONITOR DE ENVÍOS DEL BOT
+// 📤 MONITOR DE ENVÍOS Y ANTI-COLAPSO (SISTEMA DE COLA)
 // ─────────────────────────────────────────
+const sendQueue = [];
+let isSending = false;
+const SEND_DELAY = 1000; // 1 segundo exacto de pausa entre cada mensaje
+
+async function processSendQueue() {
+  if (isSending || sendQueue.length === 0) return;
+  isSending = true;
+
+  while (sendQueue.length > 0) {
+    const task = sendQueue.shift();
+    try {
+      await task.execute();
+    } catch (err) {
+      // Los errores se manejan dentro de la ejecución de la tarea
+    }
+    // 🛡️ MAGIA ANTI-BAN: Espera 1 segundo antes de enviar el siguiente mensaje
+    await new Promise(resolve => setTimeout(resolve, SEND_DELAY));
+  }
+
+  isSending = false;
+}
+
 function attachSendLogger(sock) {
   if (sock._loggerAttached) return;
   sock._loggerAttached = true;
 
   const originalSend = sock.sendMessage.bind(sock);
 
+  // Sobrescribimos la función de envío para inyectar nuestra cola de seguridad
   sock.sendMessage = async (jid, content = {}, options = {}) => {
-    try {
-      if (config.debug) {
-        let type = 'Desconocido', preview = '';
-        if (content.text) { type = 'Texto'; preview = content.text; }
-        else if (content.image) { type = 'Imagen'; preview = content.caption || '[Imagen]'; }
-        else if (content.video) { type = 'Video'; preview = content.caption || '[Video]'; }
-        else if (content.audio) { type = content.ptt ? 'Nota de Voz' : 'Audio'; preview = '[Audio]'; }
-        else if (content.sticker) { type = 'Sticker'; preview = '[Sticker]'; }
-        else if (content.document) { type = 'Documento'; preview = content.fileName || '[Documento]'; }
+    return new Promise((resolve, reject) => {
+      sendQueue.push({
+        execute: async () => {
+          try {
+            if (config.debug) {
+              let type = 'Desconocido', preview = '';
+              if (content.text) { type = 'Texto'; preview = content.text; }
+              else if (content.image) { type = 'Imagen'; preview = content.caption || '[Imagen]'; }
+              else if (content.video) { type = 'Video'; preview = content.caption || '[Video]'; }
+              else if (content.audio) { type = content.ptt ? 'Nota de Voz' : 'Audio'; preview = '[Audio]'; }
+              else if (content.sticker) { type = 'Sticker'; preview = '[Sticker]'; }
+              else if (content.document) { type = 'Documento'; preview = content.fileName || '[Documento]'; }
 
-        console.log(chalk.gray(`[${getTime()}] `) + chalk.cyan('📤 [BOT RESPONDE]') + chalk.gray(` a +${cleanNumber(jid)} `) + chalk.yellow(`[${type}] `) + chalk.white(`-> ${String(preview).slice(0, 60).replace(/\n/g, ' ')}...`));
-      }
-      return await originalSend(jid, content, options);
-    } catch (err) {
-      console.log(chalk.gray(`[${getTime()}] `) + chalk.red('❌ [ERROR DE ENVÍO]:'), err?.message || err);
-    }
+              console.log(chalk.gray(`[${getTime()}] `) + chalk.cyan('📤 [BOT RESPONDE]') + chalk.gray(` a +${cleanNumber(jid)} `) + chalk.yellow(`[${type}] `) + chalk.white(`-> ${String(preview).slice(0, 60).replace(/\n/g, ' ')}...`));
+            }
+            
+            const result = await originalSend(jid, content, options);
+            resolve(result);
+            
+          } catch (err) {
+            console.log(chalk.gray(`[${getTime()}] `) + chalk.red('❌ [ERROR DE ENVÍO]:'), err?.message || err);
+            reject(err);
+          }
+        }
+      });
+
+      // Inicia la cola si estaba dormida
+      processSendQueue();
+    });
   };
 }
 
@@ -149,7 +185,7 @@ global.loadPlugins = loadPlugins;
 loadPlugins();
 
 // ─────────────────────────────────────────
-// 🧰 UTILIDADES INTERNAS (Mantenidas Intactas)
+// 🧰 UTILIDADES INTERNAS
 // ─────────────────────────────────────────
 function cleanNumber(jid = '') { return String(jid).split('@')[0].split(':')[0].replace(/\D/g, ''); }
 function isObject(value) { return value && typeof value === 'object'; }
@@ -288,7 +324,6 @@ async function messageHandler(sock, msg, store = {}) {
 
     // 🔥 LOG DE RECEPCIÓN VISTOSO (ESTILO NASA)
     if (config.debug) {
-      // Si el body está vacío (ej: envía una foto sin descripción), muestra el icono
       const msgDisplay = body || getMsgIcon(msg); 
       const colorMsg = isCommand ? chalk.yellowBright : chalk.white;
       
@@ -329,7 +364,7 @@ async function messageHandler(sock, msg, store = {}) {
 
     if (!parsed || !command) return;
 
-    if (!botEncendido && !['enable', 'disable', 'menu', 'help'].includes(command)) {
+    if (!botEncendido && !['enable', 'disable', 'on', 'off', 'menu', 'help'].includes(command)) {
        if (!isOwner) return; 
     }
 
@@ -368,7 +403,6 @@ async function messageHandler(sock, msg, store = {}) {
     args.shift(); // Quitamos el comando de los args
 
     try {
-      // 🔥 AÑADIMOS fromGroup AQUÍ PARA QUE LOS PLUGINS LO LEAN
       await plugin.execute({
         sock, msg, key, remoteJid, sender, botJid, pushName, body, args, command, store, config, db,
         fromMe, fromGroup, isOwner, isAdmin, isBotAdmin, groupMetadata, groupAdmins,
