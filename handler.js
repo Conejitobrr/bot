@@ -14,20 +14,24 @@ const {
   getGroupAdmins
 } = require('./lib/utils');
 
-// ⏱️ RELOJ GLOBAL
+// ⏱️ RELOJ GLOBAL (FORZADO A HORA PERUANA)
 function getTime() {
-  return new Date().toLocaleTimeString('es-PE', { hour12: false });
+  return new Date().toLocaleTimeString('es-PE', { 
+    timeZone: 'America/Lima', 
+    hour12: false 
+  });
 }
 
 // ─────────────────────────────────────────
-// 🎨 LOGGER PROFESIONAL (ESTILO NASA)
+// 🎨 LOGGER PROFESIONAL (ESTILO NEÓN/GAMER)
 // ─────────────────────────────────────────
 function logBox(title, lines = []) {
   if (!config.debug) return;
   const time = getTime();
-  console.log(chalk.gray(`\n┌─── 🕒 [${time}] ─── ${chalk.cyan(title)} ───`));
-  lines.forEach(line => console.log(chalk.gray('│ ') + line));
-  console.log(chalk.gray('└────────────────────────────────────────────\n'));
+  // Bordes en Magenta Brillante y Título en Cian
+  console.log(chalk.magentaBright(`\n╭━━━ 🕒 [${time}] ━━━ ⟨ ${chalk.cyanBright(title)} ⟩ ━━━`));
+  lines.forEach(line => console.log(chalk.magentaBright('┃ ') + line));
+  console.log(chalk.magentaBright('╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
 }
 
 // Detector de iconos para la consola
@@ -44,7 +48,7 @@ function getMsgIcon(msg) {
 }
 
 // ─────────────────────────────────────────
-// 🚀 SILENCIADOR DE RUIDO GLOBAL (FILTRO AGRESIVO)
+// 🚀 SILENCIADOR DE RUIDO GLOBAL
 // ─────────────────────────────────────────
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
@@ -57,7 +61,8 @@ function shouldHideConsole(args = []) {
     'SessionEntry', '_chains', 'Removing old closed session', 'chainKey', 
     'ephemeralKeyPair', 'rootKey', 'indexInfo', 'registrationId', 
     'currentRatchet', 'pendingPreKey', 'messageKeys', 'remoteIdentityKey',
-    'BAD MAC', 'Failed to decrypt', 'Session error', 'verifyMAC', 'rate-overlimit'
+    'BAD MAC', 'Failed to decrypt', 'Session error', 'verifyMAC'
+    // 'rate-overlimit' ELIMINADO: Ahora sí se mostrará en la consola
   ];
   return blocked.some(word => text.includes(word));
 }
@@ -71,7 +76,7 @@ console.warn = (...args) => { if (!shouldHideConsole(args)) originalConsoleWarn(
 // ─────────────────────────────────────────
 const sendQueue = [];
 let isSending = false;
-const SEND_DELAY = 1000; // 1 segundo exacto de pausa entre cada mensaje
+const SEND_DELAY = 1000; // 1 segundo exacto de pausa
 
 async function processSendQueue() {
   if (isSending || sendQueue.length === 0) return;
@@ -82,9 +87,9 @@ async function processSendQueue() {
     try {
       await task.execute();
     } catch (err) {
-      // Los errores se manejan dentro de la ejecución de la tarea
+      // Manejado internamente
     }
-    // 🛡️ MAGIA ANTI-BAN: Espera 1 segundo antes de enviar el siguiente mensaje
+    // Pausa protectora anti-bans
     await new Promise(resolve => setTimeout(resolve, SEND_DELAY));
   }
 
@@ -97,7 +102,7 @@ function attachSendLogger(sock) {
 
   const originalSend = sock.sendMessage.bind(sock);
 
-  // Sobrescribimos la función de envío para inyectar nuestra cola de seguridad
+  // Sobrescribimos el envío
   sock.sendMessage = async (jid, content = {}, options = {}) => {
     return new Promise((resolve, reject) => {
       sendQueue.push({
@@ -112,20 +117,26 @@ function attachSendLogger(sock) {
               else if (content.sticker) { type = 'Sticker'; preview = '[Sticker]'; }
               else if (content.document) { type = 'Documento'; preview = content.fileName || '[Documento]'; }
 
-              console.log(chalk.gray(`[${getTime()}] `) + chalk.cyan('📤 [BOT RESPONDE]') + chalk.gray(` a +${cleanNumber(jid)} `) + chalk.yellow(`[${type}] `) + chalk.white(`-> ${String(preview).slice(0, 60).replace(/\n/g, ' ')}...`));
+              // 🔥 NUEVO DISEÑO DE RESPUESTA DEL BOT
+              console.log(
+                chalk.magentaBright(' ╰─➤ ') + 
+                chalk.cyanBright(`[${getTime()}] `) + 
+                chalk.greenBright('🤖 BOT RESPONDE ') + 
+                chalk.whiteBright(`➔ +${cleanNumber(jid)} `) + 
+                chalk.blueBright(`[${type}] `) + 
+                chalk.yellowBright(`» ${String(preview).slice(0, 60).replace(/\n/g, ' ')}...`)
+              );
             }
             
             const result = await originalSend(jid, content, options);
             resolve(result);
             
           } catch (err) {
-            console.log(chalk.gray(`[${getTime()}] `) + chalk.red('❌ [ERROR DE ENVÍO]:'), err?.message || err);
+            console.log(chalk.magentaBright(' ╰─➤ ') + chalk.cyanBright(`[${getTime()}] `) + chalk.redBright('❌ [ERROR DE ENVÍO]:'), err?.message || err);
             reject(err);
           }
         }
       });
-
-      // Inicia la cola si estaba dormida
       processSendQueue();
     });
   };
@@ -175,10 +186,10 @@ function loadPlugins() {
         if (commands.length) commandFiles++;
       }
     } catch (err) {
-      console.log(chalk.gray(`[${getTime()}] `) + chalk.red(`❌ [ERROR PLUGIN] ${file}:`), err?.message || err);
+      console.log(chalk.cyanBright(`[${getTime()}] `) + chalk.redBright(`❌ [ERROR PLUGIN] ${file}:`), err?.message || err);
     }
   }
-  console.log(chalk.gray(`[${getTime()}] `) + chalk.green(`♻️ Motor cargado: ${plugins.size} comandos | ${messagePlugins.length} eventos automáticos.`));
+  console.log(chalk.cyanBright(`[${getTime()}] `) + chalk.greenBright(`♻️ Motor cargado: ${plugins.size} comandos | ${messagePlugins.length} eventos automáticos.`));
 }
 
 global.loadPlugins = loadPlugins;
@@ -190,32 +201,6 @@ loadPlugins();
 function cleanNumber(jid = '') { return String(jid).split('@')[0].split(':')[0].replace(/\D/g, ''); }
 function isObject(value) { return value && typeof value === 'object'; }
 function hasMediaMessage(m = {}) { return m.imageMessage || m.videoMessage || m.audioMessage || m.ptvMessage || m.stickerMessage || m.documentMessage || m.locationMessage || m.contactMessage || m.contactsArrayMessage || m.reactionMessage; }
-
-function hasViewOnceDeep(node, depth = 0, seen = new Set()) {
-  if (!isObject(node) || depth > 12 || seen.has(node)) return false;
-  seen.add(node);
-  const keys = Object.keys(node);
-  if (keys.some(k => String(k).toLowerCase().includes('viewonce'))) return true;
-  if (node.imageMessage?.viewOnce || node.videoMessage?.viewOnce || node.audioMessage?.viewOnce || node.ptvMessage?.viewOnce) return true;
-  for (const key of keys) if (isObject(node[key]) && hasViewOnceDeep(node[key], depth + 1, seen)) return true;
-  return false;
-}
-
-function findMediaDeep(node, isOnce = false, depth = 0, seen = new Set()) {
-  if (!isObject(node) || depth > 12 || seen.has(node)) return null;
-  seen.add(node);
-  const keys = Object.keys(node);
-  const nowOnce = isOnce || keys.some(k => String(k).toLowerCase().includes('viewonce')) || node.imageMessage?.viewOnce || node.videoMessage?.viewOnce || node.audioMessage?.viewOnce || node.ptvMessage?.viewOnce;
-  
-  if (hasMediaMessage(node)) return { message: node, isOnce: nowOnce };
-  for (const key of keys) {
-    if (isObject(node[key])) {
-      const found = findMediaDeep(node[key], nowOnce || key.toLowerCase().includes('viewonce'), depth + 1, seen);
-      if (found) return found;
-    }
-  }
-  return null;
-}
 
 async function safeGroupMetadata(sock, jid) { try { return await sock.groupMetadata(jid); } catch { return null; } }
 
@@ -229,10 +214,7 @@ function loadJailDB() {
   try { return fs.existsSync(JAIL_PATH) ? JSON.parse(fs.readFileSync(JAIL_PATH, 'utf8') || '{}') : { jailed: {}, fame: {} }; } 
   catch { return { jailed: {}, fame: {} }; }
 }
-
-function saveJailDB(data) {
-  try { fs.writeFileSync(JAIL_PATH, JSON.stringify(data, null, 2)); } catch {}
-}
+function saveJailDB(data) { try { fs.writeFileSync(JAIL_PATH, JSON.stringify(data, null, 2)); } catch {} }
 
 function checkJail(jid) {
   const data = loadJailDB();
@@ -271,7 +253,7 @@ function checkSpam(sender) {
 function isOnCooldown(sender) {
   const now = Date.now();
   if (commandCooldowns.has(sender)) {
-    const expiration = commandCooldowns.get(sender) + 3000; // 3 SEGUNDOS DE ESPERA ENTRE COMANDOS
+    const expiration = commandCooldowns.get(sender) + 3000; 
     if (now < expiration) return true;
   }
   commandCooldowns.set(sender, now);
@@ -295,7 +277,6 @@ async function messageHandler(sock, msg, store = {}) {
     let sender = normalizeJid(fromGroup ? key.participant : remoteJid);
     const botJid = normalizeJid(sock.user?.id || '');
 
-    // Permite procesar tanto texto como fotos vacías
     const body = getBody(msg) || '';
     const pushName = msg.pushName || store.contacts?.[sender]?.name || 'Usuario';
     const number = cleanNumber(sender);
@@ -317,21 +298,20 @@ async function messageHandler(sock, msg, store = {}) {
     const ownerNumbers = Array.isArray(config.owner) ? config.owner.map(n => String(n).replace(/\D/g, '')) : [];
     const isOwner = fromMe || ownerNumbers.includes(number) || ownerNumbers.includes(cleanNumber(remoteJid)) || ownerNumbers.includes(cleanNumber(msg.realNumber || ''));
 
-    // Detección si es comando para colorearlo diferente
     const parsed = detectPrefix(body, config.prefix);
     const command = parsed ? parsed.body.trim().split(/\s+/)[0].toLowerCase() : null;
     const isCommand = !!plugins.get(command);
 
-    // 🔥 LOG DE RECEPCIÓN VISTOSO (ESTILO NASA)
+    // 🔥 LOG DE RECEPCIÓN (NUEVOS COLORES)
     if (config.debug) {
       const msgDisplay = body || getMsgIcon(msg); 
-      const colorMsg = isCommand ? chalk.yellowBright : chalk.white;
+      const colorMsg = isCommand ? chalk.yellowBright : chalk.whiteBright;
       
       logBox('MENSAJE RECIBIDO', [
-        `${chalk.blue('👥')} Chat: ${chalk.white(chatName.slice(0, 20))}`,
-        `${chalk.yellow('👤')} De: ${chalk.white(pushName)} (${chalk.gray('+' + number)}) ${isOwner ? chalk.red('👑 [OWNER]') : ''}`,
-        `${chalk.magenta('🎞️')} Tipo: ${chalk.green(getMsgIcon(msg))}`,
-        `${chalk.cyan('💬')} Msg: ${colorMsg(msgDisplay.slice(0, 50))}`
+        `${chalk.blueBright('👥 Chat:')} ${chalk.greenBright(chatName.slice(0, 25))}`,
+        `${chalk.yellowBright('👤 De:')} ${chalk.cyanBright(pushName)} ${chalk.gray('(+'+number+')')} ${isOwner ? chalk.redBright('👑 [OWNER]') : ''}`,
+        `${chalk.magentaBright('🎞️ Tipo:')} ${chalk.whiteBright(getMsgIcon(msg))}`,
+        `${chalk.greenBright('💬 Msg:')} ${colorMsg(msgDisplay.slice(0, 50))}`
       ]);
     }
 
@@ -357,7 +337,7 @@ async function messageHandler(sock, msg, store = {}) {
             reply: text => sock.sendMessage(remoteJid, { text: String(text) }, { quoted: msg })
           });
         } catch (e) {
-          console.log(chalk.gray(`[${getTime()}] `) + chalk.red(`❌ [ERROR EVENTO] ${plugin.file}:`), e?.message || e);
+          console.log(chalk.cyanBright(`[${getTime()}] `) + chalk.redBright(`❌ [ERROR EVENTO] ${plugin.file}:`), e?.message || e);
         }
       }
     }
@@ -369,9 +349,8 @@ async function messageHandler(sock, msg, store = {}) {
     }
 
     const plugin = plugins.get(command);
-    if (!plugin) return; // Ignora si no es comando válido
+    if (!plugin) return; 
 
-    // ✅ AUTO-LECTURA (Solo lee si es comando)
     try { await sock.readMessages([msg.key]); } catch {}
 
     if (!isOwner) {
@@ -394,13 +373,20 @@ async function messageHandler(sock, msg, store = {}) {
       return sock.sendMessage(remoteJid, { text: `⛓️ *ESTÁS ARRESTADO*\n\nNo puedes usar comandos por ahora.\n⏳ Tiempo restante: *${msToTime(jail.until - Date.now())}*` }, { quoted: msg });
     }
 
-    // 🚀 LOG DE EJECUCIÓN DEL COMANDO
+    // 🔥 LOG DE COMANDO (NUEVO DISEÑO)
     if (config.debug) {
-      console.log(chalk.gray(`[${getTime()}] `) + chalk.green('🟢 [COMANDO EJECUTADO] ') + chalk.cyan(config.prefix + command) + chalk.gray(' | Por: ') + chalk.yellow(`${pushName} (+${number})`));
+      console.log(
+        chalk.magentaBright(' ╭─➤ ') + 
+        chalk.cyanBright(`[${getTime()}] `) + 
+        chalk.greenBright('⚡ COMANDO: ') + 
+        chalk.yellowBright(config.prefix + command) + 
+        chalk.whiteBright(' | 👤 Por: ') + 
+        chalk.cyanBright(`${pushName}`)
+      );
     }
 
     const args = parsed.body.trim().split(/\s+/).filter(Boolean);
-    args.shift(); // Quitamos el comando de los args
+    args.shift();
 
     try {
       await plugin.execute({
@@ -412,12 +398,12 @@ async function messageHandler(sock, msg, store = {}) {
       try { await db.addXP(sender, Math.floor(Math.random() * 16) + 5); } catch (e) {}
 
     } catch (e) {
-      console.log(chalk.gray(`[${getTime()}] `) + chalk.red(`❌ [CRASH EN COMANDO] ${command} (${plugin.file}):\n`), e?.stack || e);
+      console.log(chalk.magentaBright(' ╭─➤ ') + chalk.cyanBright(`[${getTime()}] `) + chalk.redBright(`❌ [CRASH EN COMANDO] ${command}:\n`), e?.stack || e);
       try { await sock.sendMessage(remoteJid, { text: `❌ *Error interno del sistema.*\nMi código falló al ejecutar \`${command}\`.` }, { quoted: msg }); } catch {}
     }
 
   } catch (err) {
-    console.log(chalk.gray(`[${getTime()}] `) + chalk.red('❌ [FATAL ERROR EN HANDLER]:'), err?.stack || err);
+    console.log(chalk.cyanBright(`[${getTime()}] `) + chalk.redBright('❌ [FATAL ERROR EN HANDLER]:'), err?.stack || err);
   }
 }
 
