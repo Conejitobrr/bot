@@ -18,10 +18,6 @@ function ensureTemp() {
   if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-function isYouTubeUrl(text = '') {
-  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(text);
-}
-
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function sanitizeFileName(name = 'audio') {
@@ -29,7 +25,7 @@ function sanitizeFileName(name = 'audio') {
 }
 
 // ==========================================
-// MOTOR DE COLA
+// MOTOR DE COLA PARA AUDIO
 // ==========================================
 async function processQueue(chatId) {
   if (processingChats.has(chatId)) return;
@@ -57,7 +53,7 @@ async function processQueue(chatId) {
 }
 
 // ==========================================
-// DESCARGA Y ENVÍO CON YT-DLP
+// DESCARGA Y ENVÍO DEL AUDIO CON YT-DLP
 // ==========================================
 async function handleDownload(job) {
   const { sock, remoteJid, msg, url, title, id } = job;
@@ -111,6 +107,7 @@ async function handleDownload(job) {
 // ==========================================
 module.exports = {
   commands: ['yt', 'play', 'youtube', 'p'],
+  description: 'Descarga audios de YouTube en MP3 (320kbps)',
 
   async execute(ctx) {
     const { sock, remoteJid, args, msg, sender, reply } = ctx;
@@ -126,7 +123,21 @@ module.exports = {
       let thumb = 'https://files.catbox.moe/k3y7a5.jpg'; 
       let author = 'YouTube';
 
-      if (!isYouTubeUrl(query)) {
+      // 🔥 LÓGICA CORREGIDA: Detectar URLs y obtener información real (Igual que en video.js)
+      const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+      const match = query.match(ytRegex);
+
+      if (match && match[1]) {
+        // ES UN ENLACE
+        const video = await yts({ videoId: match[1] });
+        if (!video) return reply('❌ No se pudo obtener la información de ese enlace.');
+        
+        url = video.url;
+        title = video.title;
+        thumb = video.thumbnail;
+        author = video.author?.name || 'Desconocido';
+      } else {
+        // ES UN TEXTO (Búsqueda)
         const res = await yts(query);
         const video = res.videos?.find(v => v.url && !v.title?.toLowerCase().includes('mix') && !v.title?.toLowerCase().includes('playlist')) || res.videos?.[0];
         
@@ -138,17 +149,17 @@ module.exports = {
         author = video.author?.name || 'Desconocido';
       }
 
-      // 🔥 CORRECCIÓN DEL CUADRO NEGRO: Convertimos la imagen a Buffer (Memoria física)
+      // Descarga de miniatura en memoria RAM (Evita el cuadro negro)
       let thumbBuffer;
       try {
         const response = await fetch(thumb);
         const arrayBuffer = await response.arrayBuffer();
         thumbBuffer = Buffer.from(arrayBuffer);
       } catch (err) {
-        console.error('No se pudo cargar la imagen miniatura:', err);
-        thumbBuffer = undefined; // Si falla, al menos no crashea
+        thumbBuffer = undefined;
       }
 
+      // Gestión de la cola independiente
       if (!queues.has(remoteJid)) queues.set(remoteJid, []);
       const queue = queues.get(remoteJid);
       
@@ -162,7 +173,7 @@ module.exports = {
       });
 
       const textAviso = position === 0
-        ? `📥 *CANCION EN PROCESO*\n\n👤 *Pedido por:* @${sender.split('@')[0]}\n🎶 *Descargando:* ${title}\n\n⏳ _Procesando audio de alta calidad..._`
+        ? `📥 *CANCIÓN EN PROCESO*\n\n👤 *Pedido por:* @${sender.split('@')[0]}\n🎶 *Descargando:* ${title}\n\n⏳ _Procesando audio de alta calidad..._`
         : `📥 *AÑADIDA A LA COLA*\n\n👤 *Pedido por:* @${sender.split('@')[0]}\n🎶 *Canción:* ${title}\n📌 *Posición:* #${position + 1}\n\n⏳ _Tu pedido se enviará automáticamente en *${waitMin} minuto(s)* para evitar el spam._`;
 
       await sock.sendMessage(remoteJid, {
@@ -172,8 +183,8 @@ module.exports = {
           externalAdReply: {
             title: title,
             body: `Canal: ${author}`,
-            thumbnail: thumbBuffer, // ✅ Pasamos la imagen física en lugar del Link
-            sourceUrl: url, // ✅ Hace que el cuadro sea clicable y te lleve a YouTube
+            thumbnail: thumbBuffer, 
+            sourceUrl: url, 
             mediaType: 1,
             renderLargerThumbnail: true
           }
