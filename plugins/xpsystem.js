@@ -11,21 +11,21 @@ function key(g, u) {
 }
 
 module.exports = {
-    // 🔥 EVENTO DE GANANCIA DE XP
     onMessage: async (ctx) => {
-        const { sender, remoteJid, fromGroup, db } = ctx;
+        const { sender, remoteJid, fromGroup, db, pushName } = ctx;
         if (!fromGroup) return;
 
         const k = key(remoteJid, sender);
         const now = Date.now();
 
-        // Cooldown de 8 segundos para ganar XP al escribir
         if (cooldown.has(k) && (now - cooldown.get(k) < 8000)) return;
         cooldown.set(k, now);
 
-        // Ganancia aleatoria entre 5 y 15
+        // 🔥 IMPORTANTE: Guardamos el pushName en la DB al ganar XP 
+        // para que luego podamos mostrarlo en los TOPs
         const xp = Math.floor(Math.random() * 11) + 5;
         await db.addXP(sender, xp);
+        await db.setUser(sender, { name: pushName || 'Usuario' }); 
     },
 
     commands: ['topxp', 'topglobal'],
@@ -40,6 +40,7 @@ module.exports = {
         // Recalcular lista global
         const list = Object.entries(users).map(([id, u]) => ({
             id: cleanJid(id),
+            name: u.name || 'Usuario', // Recuperamos el nombre guardado
             xp: Number(u.xp || 0),
             level: db.calculateLevel(u.xp || 0)
         }));
@@ -64,7 +65,9 @@ module.exports = {
                 const u = top[i];
                 mentions.push(`${u.id}@s.whatsapp.net`);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
-                text += `${medal} @${u.id.split('@')[0]}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
+                
+                // 🔥 AQUÍ ESTÁ EL CAMBIO: Mostramos Nombre + Mención
+                text += `${medal} *${u.name}* (@${u.id.split('@')[0]})\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
             return sock.sendMessage(remoteJid, { text, mentions }, { quoted: msg });
@@ -81,7 +84,9 @@ module.exports = {
                 const u = top[i];
                 mentions.push(`${u.id}@s.whatsapp.net`);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
-                text += `${medal} @${u.id.split('@')[0]}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
+                
+                // 🔥 AQUÍ ESTÁ EL CAMBIO: Mostramos Nombre + Mención
+                text += `${medal} *${u.name}* (@${u.id.split('@')[0]})\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
             return sock.sendMessage(remoteJid, { text, mentions }, { quoted: msg });
