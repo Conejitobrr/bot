@@ -2,13 +2,16 @@
 
 const cooldown = new Map();
 
-// Helper para limpiar el JID y dejar solo el número puro
-function cleanJid(jid = '') {
-    return String(jid).split('@')[0].split(':')[0];
+// 🔥 NUEVO: Limpiador extremo (quita todo lo que no sea número)
+function getPureNumber(id) {
+    return String(id).replace(/\D/g, ''); 
+}
+
+function key(g, u) {
+    return `${g}:${u}`;
 }
 
 module.exports = {
-    // 🔥 EVENTO DE GANANCIA DE XP
     onMessage: async (ctx) => {
         const { sender, remoteJid, fromGroup, db } = ctx;
         if (!fromGroup) return;
@@ -32,9 +35,9 @@ module.exports = {
         const allData = await db.getAll();
         const users = allData.users || {};
 
-        // Recalcular lista global
+        // Recalcular lista
         const list = Object.entries(users).map(([id, u]) => ({
-            id: cleanJid(id),
+            id: id, // Mantenemos el ID original para trabajar
             xp: Number(u.xp || 0),
             level: db.calculateLevel(u.xp || 0)
         }));
@@ -45,8 +48,7 @@ module.exports = {
             try { metadata = await sock.groupMetadata(remoteJid); } 
             catch { return reply('❌ Este comando solo funciona en grupos.'); }
 
-            // Filtramos solo los participantes actuales del grupo
-            const participants = metadata.participants.map(p => cleanJid(p.id));
+            const participants = metadata.participants.map(p => p.id);
             const groupUsers = list.filter(u => participants.includes(u.id));
 
             if (!groupUsers.length) return reply('❌ Nadie en este grupo ha ganado XP aún.');
@@ -58,11 +60,13 @@ module.exports = {
 
             for (let i = 0; i < top.length; i++) {
                 const u = top[i];
-                mentions.push(`${u.id}@s.whatsapp.net`);
+                const pureNumber = getPureNumber(u.id); // 🔥 LIMPIEZA EXTREMA
+                
+                mentions.push(u.id); // Guardamos el JID completo para la mención
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
                 
-                // 🔥 AQUÍ ESTÁ LA MENCION NATIVA: Al poner @id, WhatsApp lo convierte en enlace
-                text += `${medal} @${u.id}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
+                // 🔥 MENCION NATIVA: @ seguido de números puros
+                text += `${medal} @${pureNumber}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
             return sock.sendMessage(remoteJid, { text, mentions }, { quoted: msg });
@@ -77,10 +81,12 @@ module.exports = {
 
             for (let i = 0; i < top.length; i++) {
                 const u = top[i];
-                mentions.push(`${u.id}@s.whatsapp.net`);
+                const pureNumber = getPureNumber(u.id); // 🔥 LIMPIEZA EXTREMA
+                
+                mentions.push(u.id);
                 const medal = ['🥇','🥈','🥉'][i] || `*${i + 1}.*`;
                 
-                text += `${medal} @${u.id}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
+                text += `${medal} @${pureNumber}\n  ✨ Nivel: ${u.level} | ⚡ XP: ${u.xp.toLocaleString()}\n\n`;
             }
 
             return sock.sendMessage(remoteJid, { text, mentions }, { quoted: msg });
