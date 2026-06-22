@@ -1,81 +1,114 @@
 'use strict';
 
-const db = require('../lib/database');
-
-function getRole(level) {
-  if (level >= 500) return '🐉 Trascendido';
-  if (level >= 250) return '☄️ Celestial';
-  if (level >= 150) return '🪐 Divino';
-  if (level >= 100) return '👑 Inmortal';
-  if (level >= 70) return '💠 Mítico';
-  if (level >= 50) return '🌟 Leyenda';
-  if (level >= 35) return '🧙 Maestro';
-  if (level >= 25) return '🔥 Elite';
-  if (level >= 18) return '⚔️ Veterano';
-  if (level >= 12) return '🛡️ Guerrero';
-  if (level >= 8) return '⚡ Aventurero';
-  if (level >= 5) return '📚 Aprendiz';
-  if (level >= 3) return '🌱 Principiante';
-  return '🐣 Novato';
+// Función para limpiar números
+function cleanJid(jid = '') {
+    return String(jid).split('@')[0].split(':')[0].replace(/\D/g, '');
 }
 
+// 🎭 Sistema de Roles
+function getRole(level) {
+    if (level >= 500) return '🐉 Dios Supremo';
+    if (level >= 250) return '☄️ Celestial';
+    if (level >= 150) return '🪐 Divino';
+    if (level >= 100) return '👑 Inmortal';
+    if (level >= 70) return '💠 Mítico';
+    if (level >= 50) return '🌟 Leyenda';
+    if (level >= 35) return '🧙 Maestro';
+    if (level >= 25) return '🔥 Elite';
+    if (level >= 18) return '⚔️ Veterano';
+    if (level >= 12) return '🛡️ Guerrero';
+    if (level >= 8) return '⚡ Aventurero';
+    if (level >= 5) return '📚 Aprendiz';
+    if (level >= 3) return '🌱 Principiante';
+    return '🐣 Novato';
+}
+
+// 📊 Creador de barra de progreso visual
 function makeBar(progress, total, size = 10) {
-  let filled = Math.round((progress / total) * size);
-  if (filled < 0) filled = 0;
-  if (filled > size) filled = size;
-  return '█'.repeat(filled) + '░'.repeat(size - filled);
+    let filled = Math.round((progress / total) * size);
+    if (filled < 0) filled = 0;
+    if (filled > size) filled = size;
+    const empty = size - filled;
+    return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
 module.exports = {
-  commands: ['rank', 'nivel', 'xp'],
-  description: 'Muestra tu rango o el de otro usuario',
+    commands: ['rank', 'perfil', 'nivel', 'level'],
+    description: 'Muestra tu rango, nivel y posición global',
 
-  async execute(ctx) {
-    const { sock, remoteJid, sender, pushName, msg } = ctx;
+    async execute(ctx) {
+        const { sock, remoteJid, sender, pushName, msg, db } = ctx;
 
-    let target = sender;
-    // Detectar si respondieron o mencionaron a alguien
-    if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
-      target = msg.message.extendedTextMessage.contextInfo.participant;
-    } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
-      target = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
+        // 1. IDENTIFICAR EL OBJETIVO (A quién estamos mirando)
+        let target = sender;
+        if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
+            target = msg.message.extendedTextMessage.contextInfo.participant;
+        } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length) {
+            target = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
+        }
+
+        const cleanTarget = cleanJid(target);
+        const cleanSender = cleanJid(sender);
+
+        // 2. OBTENER DATOS DEL USUARIO
+        const user = await db.getUser(cleanTarget);
+        const xp = Number(user.xp || 0);
+        const level = Number(user.level || 0);
+
+        // 3. CÁLCULO PERFECTO DE BARRAS (Base 10,000)
+        // Nivel 0: 0-9,999 | Nivel 1: 10,000-19,999
+        const currentBase = level * 10000; 
+        const nextBase = (level + 1) * 10000;
+        
+        const progressXP = xp - currentBase;
+        const neededXP = nextBase - xp;
+        
+        const porcentaje = Math.floor((progressXP / 10000) * 100);
+        const bar = makeBar(progressXP, 10000, 10);
+        const role = getRole(level);
+
+        // 4. 🏆 CÁLCULO DEL TOP GLOBAL (Magia en memoria RAM)
+        const allData = await db.getAll();
+        const allUsers = allData.users || {};
+        
+        // Ordenamos a todos los usuarios de mayor a menor XP
+        const sortedUsers = Object.entries(allUsers).sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0));
+        
+        // Buscamos en qué posición está la persona
+        const rankPosition = sortedUsers.findIndex(u => u[0] === cleanTarget) + 1;
+        const totalUsers = sortedUsers.length;
+
+        // Diseñamos el trofeo según la posición
+        let trofeo = '';
+        if (rankPosition === 1) trofeo = '🏆 *[TOP #1 GLOBAL]*';
+        else if (rankPosition === 2) trofeo = '🥈 *[TOP #2 GLOBAL]*';
+        else if (rankPosition === 3) trofeo = '🥉 *[TOP #3 GLOBAL]*';
+        else if (rankPosition <= 10) trofeo = `🎖️ *[TOP #${rankPosition} GLOBAL]*`;
+        else if (rankPosition === 0) trofeo = '👻 No registrado';
+        else trofeo = `🏅 Posición: #${rankPosition} de ${totalUsers}`;
+
+        // 5. DISEÑO DE LA INTERFAZ
+        const isMe = cleanTarget === cleanSender;
+        const displayName = isMe ? pushName : `@${cleanTarget}`;
+
+        const rankMsg = 
+`╭━━━〔 *PERFIL DE USUARIO* 〕━━━
+┃ 👤 *Nombre:* ${displayName}
+┃ ${trofeo}
+┃ 🎭 *Clase:* ${role}
+┣━━━━━━━━━━━━━━━━━━━━━━
+┃ 📈 *Nivel:* ${level}
+┃ ✨ *Experiencia:* ${xp.toLocaleString()} XP
+┣━━━━━━━━━━━━━━━━━━━━━━
+┃ 🚀 *Progreso al Nivel ${level + 1}*
+┃ [${bar}] ${porcentaje}%
+┃ ⏳ *Faltan:* ${neededXP.toLocaleString()} XP
+╰━━━━━━━━━━━━━━━━━━━━━━`;
+
+        // 6. ENVIAR RESULTADO
+        await sock.sendMessage(remoteJid, {
+            text: rankMsg,
+            mentions: isMe ? [] : [target] // Solo menciona si miraste a otro
+        }, { quoted: msg });
     }
-
-    const user = await db.getUser(target);
-    const xp = user.xp || 0;
-    
-    // 🔥 CÁLCULO MATEMÁTICO CORREGIDO:
-    // Nivel basado en bloques de 10,000
-    const level = Math.floor(xp / 10000);
-    // Progreso: el resto de la división (XP dentro del nivel actual)
-    const progress = xp % 10000;
-    // Lo que falta para el siguiente bloque de 10,000
-    const needed = 10000 - progress;
-
-    const role = getRole(level);
-    const bar = makeBar(progress, 10000);
-    
-    // Para que WhatsApp lo reconozca como mención, el formato es @numero
-    const number = target.split('@')[0];
-    const displayUser = `👤 @${number}`;
-
-    await sock.sendMessage(remoteJid, {
-      text:
-`╔════════════════════╗
-║      🎖️ PERFIL RANK
-╠════════════════════╣
-║ ${displayUser}
-║
-║ ⭐ XP: ${xp.toLocaleString()}
-║ 📈 Nivel: ${level}
-║ 🎭 Rol: ${role}
-║
-║ ${bar}
-║ ${progress.toLocaleString()}/10000 XP
-║
-║ ⏳ Faltan: ${needed.toLocaleString()} XP
-╚════════════════════╝`,
-      mentions: [target] // Esto hace que el @numero sea clickeable
-    }, { quoted: msg });
-  }
 };
